@@ -2,7 +2,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import useRoom from "./hooks/useRoom";
 
 function Spectate() {
-    let [searchParams, setSearchParams] = useSearchParams();
+    let [searchParams] = useSearchParams();
 
     const {roomId} = useParams();
 

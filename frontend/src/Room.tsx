@@ -7,9 +7,9 @@ function Room() {
     const {roomId} = useParams()
     const navigate = useNavigate()
     
-    let [searchParams, setSearchParams] = useSearchParams();
+    let [searchParams] = useSearchParams();
 
-    const [room, setRoom] = useRoom(roomId)
+    const [room] = useRoom(roomId)
 
     useEffect(() => {
         function goToGame(id: number) {
