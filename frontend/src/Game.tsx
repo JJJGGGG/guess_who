@@ -2,7 +2,7 @@ import { useParams, useSearchParams, createSearchParams, useNavigate } from "rea
 import useTiles from "./hooks/useBoard";
 
 function Game() {
-    let [searchParams, setSearchParams] = useSearchParams();
+    let [searchParams] = useSearchParams();
     const { roomId } = useParams()
     const navigate = useNavigate()
 
