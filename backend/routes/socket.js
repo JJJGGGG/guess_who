@@ -27,12 +27,15 @@ function addWebsockets(server, app) {
                 }
             })
             console.log(socketid)
-            await prisma.board.deleteMany({
-                where: {
-                    id: board.id
-                }
-            })
-            updateRooms(io);
+            if(board) {
+                await prisma.board.deleteMany({
+                    where: {
+                        id: board.id
+                    }
+                })
+                updateRooms(io);
+
+            }
         })
     });
 

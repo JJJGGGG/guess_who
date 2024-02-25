@@ -103,8 +103,8 @@ router.post('/start', async function(req, res, next) {
 
 
   await Promise.all(room.boards.map(async (board) => {
-    for(let i=0; i<3; i++) {
-      for(let j=0; j<3; j++) {
+    for(let i=0; i<6; i++) {
+      for(let j=0; j<6; j++) {
         await prisma.tile.create({
           data: {
             boardId: board.id,
@@ -121,6 +121,8 @@ router.post('/start', async function(req, res, next) {
   const io = req.app.get("socketio")
 
   io.emit("startGame", roomId)
+
+  updateRooms(io)
 
   return res.json({started: true})
 })
