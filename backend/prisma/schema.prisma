@@ -23,9 +23,10 @@ model Board {
   roomId   Int
   playerId String
   tiles    Tile[]
-  room Room         @relation(fields: [roomId], references: [id])
+  room Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
   chosenRow Int?
   chosenCol Int?
+  socketId String?
 }
 
 model Tile {
@@ -33,8 +34,8 @@ model Tile {
   row      Int
   col      Int
   name     String
-  photo    String
-  url      String
-  boardId  Int     @unique
-  board    Board   @relation(fields: [boardId], references: [id])
+  photoUrl String
+  flipped  Boolean
+  boardId  Int
+  board    Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
 }

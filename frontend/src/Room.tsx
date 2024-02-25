@@ -1,5 +1,7 @@
 import { createSearchParams, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import useRoom from "./hooks/useRoom";
+import { useEffect } from "react";
+import { socket } from "./socket";
 
 function Room() {
     const {roomId} = useParams()
@@ -8,6 +10,25 @@ function Room() {
     let [searchParams, setSearchParams] = useSearchParams();
 
     const [room, setRoom] = useRoom(roomId)
+
+    useEffect(() => {
+        function goToGame(id: number) {
+            if(id.toString() == roomId){
+                navigate({
+                    pathname: `/rooms/${roomId}/game`,     
+                    search: createSearchParams({
+                        playerId: searchParams.get("playerId") || ""
+                    }).toString()
+                })
+            }
+        }
+
+        socket.on("startGame", goToGame)
+
+        return () => {
+            socket.off("startGame", goToGame)
+        }
+    }, [])
 
     async function leaveRoom() {
         await fetch(import.meta.env.VITE_BACKEND_URL + "/rooms/leave", {
@@ -39,26 +60,23 @@ function Room() {
                 roomId: parseInt(roomId || "")
             })
         })
-        navigate({
-            pathname: `/rooms/${roomId}/game`,     
-            search: createSearchParams({
-                playerId: searchParams.get("playerId") || ""
-            }).toString()
-        })
     }
 
     return <div>
-        <div>Room {roomId}</div>
-        <div><button onClick={leaveRoom}>Leave room</button></div>
-        <div>{room?.boards.map((b) => <div>
-            {b.playerId}
-        </div>)}</div>
+        <div className="font-bold mb-2">Room {roomId}</div>
         <div>
             {room?.boards.length == 2 ? 
-                <button onClick={startGame}>Start Game</button> :
+                <button className="rounded text-white bg-sky-600 px-2 py-1 mb-2" onClick={startGame}>Start Game</button> :
                 ""
             }
+            <button className="rounded text-white bg-red-600 px-2 py-1 mb-2 ml-2" onClick={leaveRoom}>Leave room</button>
         </div>
+        <div className="font-bold">Players:</div>
+        <div>{room?.boards.map((b) => 
+            <div className="mt-1">
+                {b.playerId}
+            </div>
+        )}</div>
     </div>
 }
 

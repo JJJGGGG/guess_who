@@ -7,6 +7,7 @@ import {
   RouterProvider,
 } from "react-router-dom";
 import Game from './Game';
+import Spectate from './Spectate';
 
 const router = createBrowserRouter([
   {
@@ -20,6 +21,10 @@ const router = createBrowserRouter([
   {
     path: "/rooms/:roomId/game",
     element: <Game />
+  },
+  {
+    path: "/rooms/:roomId/spectate",
+    element: <Spectate />
   }
 ]);
 

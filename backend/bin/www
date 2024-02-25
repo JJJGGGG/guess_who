@@ -6,7 +6,10 @@
 
 var app = require('../app');
 var debug = require('debug')('backend:server');
-var http = require('http');
+var https = require('https');
+const fs=require('fs')
+const path=require('path')
+
 const addWebsockets = require('../routes/socket')
 
 /**
@@ -20,7 +23,13 @@ app.set('port', port);
  * Create HTTP server.
  */
 
-var server = http.createServer(app);
+const options = {
+  key:fs.readFileSync(path.join(__dirname,'../cert/key.pem')),
+  cert:fs.readFileSync(path.join(__dirname,'../cert/cert.pem'))
+  }
+  
+
+var server = https.createServer(options, app);
 
 addWebsockets(server, app)
 
