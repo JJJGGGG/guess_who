@@ -1,5 +1,6 @@
-import { createSearchParams, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, createSearchParams, useNavigate, useSearchParams } from "react-router-dom";
 import useRooms from "./hooks/useRooms";
+import { socket } from "./socket";
 
 function Rooms() {
 
@@ -8,7 +9,7 @@ function Rooms() {
     const navigate = useNavigate()
 
     function chooseName(e: any) {
-        setSearchParams((searchParams) => ({...searchParams, playerId: e.target.playerId.value}))
+        setSearchParams((searchParams) => ({...searchParams, playerId: e.target.playerId.value}));
     }
     const [rooms, setRooms] = useRooms();
 
@@ -35,7 +36,8 @@ function Rooms() {
             method: "post",
             body: JSON.stringify({
                 playerId: searchParams.get("playerId"),
-                roomId: id
+                roomId: id,
+                socketId: socket.id
             })
         })
         navigate({
@@ -49,23 +51,31 @@ function Rooms() {
 
     if(!searchParams.has("playerId")) {
         return <form onSubmit={chooseName}>
-            <label>Enter player name</label>
-            <input name="playerId"/>
-            <button type="submit">Enter</button>
+            <div>
+                <label className="font-bold mb-2">Enter player name</label>
+            </div>
+            <div>
+                <input className="rounded border border-gray-500 mb-2" name="playerId"/>
+            </div>
+            <div>
+                <button className="rounded text-white bg-sky-600 px-2 py-1 mb-2" type="submit">Enter</button>
+            </div>
         </form>
     }
 
     return <div>
         <div>
-            <button onClick={createRoom}>Create room</button>
+            <button onClick={createRoom} className="rounded text-white bg-sky-600 px-2 py-1 mb-2">Create room</button>
         </div>
         <div>
             {rooms.map((room) => (
-                <div key={room.id}>Room {room.id} ({room.boards.length}/2) {
+                <div key={room.id} className="border-b border-gray-500">Room {room.id} ({room.boards.length}/2) {
                     !room.boards.map((b) => b.playerId).includes(searchParams.get("playerId") || "") && room.boards.length < 2 ?
-                    <button onClick={() => joinRoom(room.id)}>Join</button> :
+                    <button className="text-blue-500 hover:underline ml-2" onClick={() => joinRoom(room.id)}>Join</button> :
                     ""
-                }</div>
+                }
+                <Link to={`/rooms/${room.id}/spectate`} className="text-blue-500 hover:underline ml-2">Spectate</Link>
+                </div>
             ))}
         </div>
     </div>
