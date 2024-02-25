@@ -74,7 +74,7 @@ function Rooms() {
                     <button className="text-blue-500 hover:underline ml-2" onClick={() => joinRoom(room.id)}>Join</button> :
                     ""
                 }
-                <Link to={`/rooms/${room.id}/spectate`} className="text-blue-500 hover:underline ml-2">Spectate</Link>
+                <Link to={`/rooms/${room.id}/spectate?playerId=${searchParams.get("playerId")}`} className="text-blue-500 hover:underline ml-2">Spectate</Link>
                 </div>
             ))}
         </div>

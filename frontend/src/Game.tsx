@@ -44,8 +44,8 @@ function Game() {
     }
 
     if(board?.chosenCol == undefined || board.chosenRow == undefined) {
-        return <div className="grid grid-cols-3 gap-4">
-            {board?.tiles.map((tile) => <div className="bg-blue-500" onClick={() => selectCharacter(tile.row, tile.col)}>
+        return <div className="grid grid-cols-6 gap-4">
+            {board?.tiles.map((tile) => <div key={tile.id} className="bg-blue-500" onClick={() => selectCharacter(tile.row, tile.col)}>
                     <img src={`/${tile.row}_${tile.col}.webp`}/></div>)}
         </div>
     }
@@ -53,8 +53,8 @@ function Game() {
 
     return <div>
         <button onClick={leaveRoom}>Exit Game</button>
-        <div className="grid grid-cols-3 gap-4">
-            {board?.tiles.map((tile) => <div>
+        <div className="grid grid-cols-6 gap-4">
+            {board?.tiles.map((tile) => <div key={tile.id}>
                 {!tile.flipped ? <div className={`bg-blue-500 rounded`} onClick={() => switchTile(tile.row, tile.col)}>
                     <img src={`/${tile.row}_${tile.col}.webp`}/>
 

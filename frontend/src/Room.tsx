@@ -73,7 +73,7 @@ function Room() {
         </div>
         <div className="font-bold">Players:</div>
         <div>{room?.boards.map((b) => 
-            <div className="mt-1">
+            <div className="mt-1" key={b.id}>
                 {b.playerId}
             </div>
         )}</div>
