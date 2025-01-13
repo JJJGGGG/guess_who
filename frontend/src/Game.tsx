@@ -1,8 +1,9 @@
 import { useParams, useSearchParams, createSearchParams, useNavigate } from "react-router-dom";
 import useTiles from "./hooks/useBoard";
+import Chat from "./Chat";
 
 function Game() {
-    let [searchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const { roomId } = useParams()
     const navigate = useNavigate()
 
@@ -21,8 +22,6 @@ function Game() {
             })
         })
     }
-
-    console.log(board)
 
     async function leaveRoom() {
         await fetch(import.meta.env.VITE_BACKEND_URL + "/rooms/leave", {
@@ -44,15 +43,21 @@ function Game() {
     }
 
     if(board?.chosenCol == undefined || board.chosenRow == undefined) {
-        return <div className="grid grid-cols-6 gap-4">
+        return (
+            <div>
+                <div className="text-xl">Select your character</div>
+                <div className="grid grid-cols-6 gap-4">
             {board?.tiles.map((tile) => <div key={tile.id} className="bg-blue-500" onClick={() => selectCharacter(tile.row, tile.col)}>
                     <img src={`/${tile.row}_${tile.col}.webp`}/></div>)}
-        </div>
+                </div>
+                <Chat />
+            </div>
+        );
     }
 
 
     return <div>
-        <button onClick={leaveRoom}>Exit Game</button>
+        <button className="rounded text-white bg-red-600 px-2 py-1 mb-2 ml-2" onClick={leaveRoom}>Exit Game</button>
         <div className="grid grid-cols-6 gap-4">
             {board?.tiles.map((tile) => <div key={tile.id}>
                 {!tile.flipped ? <div className={`bg-blue-500 rounded`} onClick={() => switchTile(tile.row, tile.col)}>
@@ -61,8 +66,12 @@ function Game() {
                 </div> : ""}
                 {tile.flipped ? <div className={`bg-red-500 rounded`} style={{height: "78px"}} onClick={() => switchTile(tile.row, tile.col)}></div> : ""}
             </div>)}
-            <img src={`/${board.chosenRow}_${board.chosenCol}.webp`}/>
+            <div>
+                Your Character:
+                <img src={`/${board.chosenRow}_${board.chosenCol}.webp`}/>
+            </div>
         </div>
+        <div><Chat /></div>
     </div>
 }
 

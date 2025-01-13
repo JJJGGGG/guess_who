@@ -14,8 +14,9 @@ datasource db {
 }
 
 model Room {
-  id      Int        @id @default(autoincrement())
-  boards  Board[]
+  id       Int        @id @default(autoincrement())
+  boards   Board[]
+  messages Message[]
 }
 
 model Board {
@@ -28,6 +29,13 @@ model Board {
   chosenCol Int?
   socketId String?
 }
+model Message {
+  id       Int      @id @default(autoincrement())
+  roomId   Int
+  playerId String
+  room Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  message String
+}
 
 model Tile {
   id       Int      @id @default(autoincrement())
@@ -38,4 +46,6 @@ model Tile {
   flipped  Boolean
   boardId  Int
   board    Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([row, col, boardId])
 }
