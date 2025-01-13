@@ -7,7 +7,12 @@ async function updateRooms(io) {
   
     io.emit("updateRooms", rooms)
   }
+  async function updateChat(io, message) {
+  
+    io.emit("updateChat", message)
+  }
 
   module.exports = {
-    updateRooms
+    updateRooms,
+    updateChat
   }

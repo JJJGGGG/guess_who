@@ -2,12 +2,13 @@ import { createSearchParams, useNavigate, useParams, useSearchParams } from "rea
 import useRoom from "./hooks/useRoom";
 import { useEffect } from "react";
 import { socket } from "./socket";
+import Chat from "./Chat";
 
 function Room() {
     const {roomId} = useParams()
     const navigate = useNavigate()
     
-    let [searchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
 
     const [room] = useRoom(roomId)
 
@@ -77,6 +78,9 @@ function Room() {
                 {b.playerId}
             </div>
         )}</div>
+        <div>
+            <Chat />
+        </div>
     </div>
 }
 
