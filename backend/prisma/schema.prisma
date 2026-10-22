@@ -23,16 +23,20 @@ model Board {
   id       Int      @id @default(autoincrement())
   roomId   Int
   playerId String
+  playerName String @default("")
   tiles    Tile[]
   room Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
   chosenRow Int?
   chosenCol Int?
-  socketId String?
+  disconnectedAt DateTime?
+
+  @@index([disconnectedAt])
 }
 model Message {
   id       Int      @id @default(autoincrement())
   roomId   Int
   playerId String
+  playerName String @default("")
   room Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
   message String
 }

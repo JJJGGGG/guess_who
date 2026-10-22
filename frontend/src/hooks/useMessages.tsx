@@ -1,59 +1,64 @@
 import { useEffect, useState } from "react"
 import { socket } from "../socket"
+import { apiFetch } from "../api"
 
 type Message = {
+    playerId: string,
     player: string,
     message: string,
 }
 
-export default function useMessages(playerId?: string, roomId?: string): [Message[], (msg: string) => void] {
+type StoredMessage = {playerId: string, playerName: string, message: string}
+
+function toMessage(msg: StoredMessage): Message {
+    return {
+        playerId: msg.playerId,
+        player: msg.playerName,
+        message: msg.message
+    }
+}
+
+export default function useMessages(roomId?: string): [Message[], (msg: string) => void] {
     const [messages, setMessages] = useState<Message[]>([]);
 
     async function postMessage(message: string) {
-        const msgs = await fetch(
-            import.meta.env.VITE_BACKEND_URL + "/rooms/message", {
-            headers: {
-                "Content-Type": "application/json"
-            },
+        const res = await apiFetch("/rooms/message", {
             method: "POST",
             body: JSON.stringify({
                 message: message,
-                playerId: playerId,
                 roomId: parseInt(roomId || "")
             })
-        }).then((res) => res.json())
+        })
+        if(!res.ok) {
+            return
+        }
+        const msgs = await res.json()
 
-        setMessages(msgs.map((msg: {playerId: string, message: string}) => ({
-            player: msg.playerId,
-            message: msg.message
-        })))
+        setMessages(msgs.map(toMessage))
     }
 
     async function fetchMessages() {
-        const msgs = await fetch(
-            import.meta.env.VITE_BACKEND_URL + "/rooms/message?" + new URLSearchParams({
+        const msgs = await apiFetch(
+            "/rooms/message?" + new URLSearchParams({
                 roomId: roomId || "",
             }).toString()).then((res) => res.json())
 
-        setMessages(msgs.map((msg: {playerId: string, message: string}) => ({
-            player: msg.playerId,
-            message: msg.message
-        })))
+        setMessages(msgs.map(toMessage))
     }
 
-    function addMessage(newMessage: string, playerId: string) {
-        setMessages([...messages, {player: playerId, message: newMessage}])
+    function addMessage(msg: StoredMessage) {
+        setMessages([...messages, toMessage(msg)])
 
     }
 
     useEffect(() => {
         fetchMessages();
-    }, [roomId, playerId])
+    }, [roomId])
 
     useEffect(() => {
-        function updateChat({rid, newMessage, playerId}: {rid: string, newMessage: string, playerId: string}) {
+        function updateChat({rid, newMessage, playerId, playerName}: {rid: string, newMessage: string, playerId: string, playerName: string}) {
             if (rid == roomId) {
-                addMessage(newMessage, playerId)
+                addMessage({playerId, playerName, message: newMessage})
             }
         }
         socket.on("updateChat", updateChat)

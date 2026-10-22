@@ -1,8 +1,9 @@
- 
+
 var express = require('express');
 var router = express.Router();
 var {PrismaClient} = require('@prisma/client')
 const { updateRooms, updateChat } = require('../utils')
+const { requireAuth } = require('../auth')
 
 const prisma = new PrismaClient()
 
@@ -11,7 +12,7 @@ router.get('/', async function(req, res, next) {
   return res.json(await prisma.room.findMany({include: { boards: { include: { tiles: true } } }}))
 });
 
-router.post('/', async function(req, res, next) {
+router.post('/', requireAuth, async function(req, res, next) {
   const room = await prisma.room.create({
     data: {},
   })
@@ -19,10 +20,9 @@ router.post('/', async function(req, res, next) {
   return res.json(room)
 });
 
-router.post('/join', async function(req, res, next) {
+router.post('/join', requireAuth, async function(req, res, next) {
   const roomId = req.body.roomId;
-  const playerId = req.body.playerId;
-  const socketId = req.body.socketId;
+  const playerId = req.player.id;
 
   const room = await prisma.room.findUnique({
     where: {
@@ -33,7 +33,11 @@ router.post('/join', async function(req, res, next) {
     }
   })
 
-  if(room.boards.length >= 2) {
+  if(!room) {
+    return res.sendStatus(404)
+  }
+
+  if(room.boards.length >= 2 || room.boards.some(b => b.playerId == playerId)) {
     return res.sendStatus(400)
   }
 
@@ -41,16 +45,16 @@ router.post('/join', async function(req, res, next) {
     data: {
       roomId,
       playerId,
-      socketId
+      playerName: req.player.name
     },
   })
   await updateRooms(req.app.get("socketio"))
   return res.json(board)
 })
 
-router.post('/leave', async function(req, res, next) {
+router.post('/leave', requireAuth, async function(req, res, next) {
   const roomId = req.body.roomId;
-  const playerId = req.body.playerId;
+  const playerId = req.player.id;
 
   const room = await prisma.room.findUnique({
     where: {
@@ -61,8 +65,12 @@ router.post('/leave', async function(req, res, next) {
     }
   })
 
-  if(room.boards.map(b => b.playerId == playerId).length == 0) {
-    return res.sendStatus(400)
+  if(!room) {
+    return res.sendStatus(404)
+  }
+
+  if(!room.boards.some(b => b.playerId == playerId)) {
+    return res.sendStatus(403)
   }
 
   const boards = await prisma.board.findMany({
@@ -83,9 +91,9 @@ router.post('/leave', async function(req, res, next) {
   return res.json(bb)
 })
 
-router.post('/start', async function(req, res, next) {
+router.post('/start', requireAuth, async function(req, res, next) {
   const roomId = req.body.roomId;
-  const playerId = req.body.playerId;
+  const playerId = req.player.id;
 
   const room = await prisma.room.findFirst({
     where: {
@@ -100,7 +108,11 @@ router.post('/start', async function(req, res, next) {
     }
   })
 
-  if (!room.boards[0].tiles.length) {
+  if(!room || !room.boards.some(b => b.playerId == playerId)) {
+    return res.sendStatus(403)
+  }
+
+  if (room.boards.length == 2 && !room.boards[0].tiles.length) {
     for(const board of room.boards) {
       await prisma.board.update({
         where: {
@@ -128,9 +140,9 @@ router.post('/start', async function(req, res, next) {
 
 
     const io = req.app.get("socketio")
-  
+
     io.emit("startGame", roomId)
-  
+
     updateRooms(io)
 
     return res.json({started: true})
@@ -139,12 +151,12 @@ router.post('/start', async function(req, res, next) {
   return res.json({started: false})
 })
 
-router.post("/tiles/flip", async function(req, res, next) {
-  const playerId = req.body.playerId;
+router.post("/tiles/flip", requireAuth, async function(req, res, next) {
+  const playerId = req.player.id;
   const roomId = req.body.roomId;
   const row = req.body.row;
   const col = req.body.col;
-  
+
   const board = await prisma.board.findFirst({
     where: {
       roomId,
@@ -155,7 +167,15 @@ router.post("/tiles/flip", async function(req, res, next) {
     }
   })
 
+  if(!board) {
+    return res.sendStatus(403)
+  }
+
   const tile = board.tiles.find((tile) => tile.row == row && tile.col == col)
+
+  if(!tile) {
+    return res.sendStatus(400)
+  }
 
   const tileUpdate = await prisma.tile.update({
     where: {
@@ -171,14 +191,26 @@ router.post("/tiles/flip", async function(req, res, next) {
   return res.json(tileUpdate)
 })
 
-router.post("/selectcharacter", async function(req, res, next) {
-  const boardId = req.body.boardId;
+router.post("/selectcharacter", requireAuth, async function(req, res, next) {
+  const playerId = req.player.id;
+  const roomId = req.body.roomId;
   const col = req.body.col;
   const row = req.body.row;
 
+  const owned = await prisma.board.findFirst({
+    where: {
+      roomId,
+      playerId
+    }
+  })
+
+  if(!owned) {
+    return res.sendStatus(403)
+  }
+
   const board = await prisma.board.update({
     where: {
-      id: boardId
+      id: owned.id
     },
     data: {
       chosenCol: col,
@@ -206,18 +238,31 @@ router.get("/message", async function(req, res, next) {
   return res.json(room.messages)
 })
 
-router.post("/message", async function(req, res, next) {
-  const playerId = req.body.playerId;
+router.post("/message", requireAuth, async function(req, res, next) {
+  const playerId = req.player.id;
+  const playerName = req.player.name;
   const roomId = req.body.roomId;
   const message = req.body.message;
 
+  const owned = await prisma.board.findFirst({
+    where: {
+      roomId,
+      playerId
+    }
+  })
+
+  if(!owned) {
+    return res.sendStatus(403)
+  }
+
   const room = await prisma.room.update({
     where: { id: roomId },
-    data: { 
+    data: {
       messages: {
         create: {
           message: message,
           playerId: playerId,
+          playerName: playerName,
         }
       }
      },
@@ -226,7 +271,7 @@ router.post("/message", async function(req, res, next) {
      }
   })
 
-  updateChat(req.app.get("socketio"), {rid: roomId, newMessage: message, playerId: playerId})
+  updateChat(req.app.get("socketio"), {rid: roomId, newMessage: message, playerId: playerId, playerName: playerName})
 
   return res.json(room.messages)
 })

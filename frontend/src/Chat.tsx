@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import useMessages from "./hooks/useMessages";
-import { useParams, useSearchParams } from "react-router-dom";
+import usePlayer from "./hooks/usePlayer";
+import { useParams } from "react-router-dom";
 
-export default function Chat() {
+// Spectators can read the chat but only players can post.
+export default function Chat({ readOnly = false }: { readOnly?: boolean }) {
     const {roomId} = useParams();
-    const [URLSearchParams] = useSearchParams()
-    const [messages, addMessage] = useMessages(URLSearchParams.get("playerId") || undefined, roomId);
+    const { player } = usePlayer()
+    const [messages, addMessage] = useMessages(roomId);
 
     const [curMsg, setCurMsg] = useState("")
 
@@ -21,7 +23,7 @@ export default function Chat() {
             <div className="font-bold">Chat</div>
             <div className="h-40 overflow-scroll border rounded lg:w-1/2 gap-y-2 flex flex-col mb-2">
                 {messages.map(message => (
-                    message.player === URLSearchParams.get("playerId") ? (
+                    message.playerId === player?.id ? (
                         <div className="flex justify-end">
                             <div className="px-2 py-1 border rounded inline-block">
                                 <span className="font-bold">You:</span>{" "}
@@ -39,10 +41,10 @@ export default function Chat() {
                 ))}
                 <div ref={scrollref}></div>
             </div>
-            <div>
+            {!readOnly && <div>
                 <input className="border border-2 mr-2 rounded px-2 py-1" value={curMsg} onChange={(e) => setCurMsg(e.target.value)} />
                 <button className="rounded text-white bg-sky-600 px-2 py-1 mb-2" onClick={() => addMessage(curMsg)}>Enviar</button>
-            </div>
+            </div>}
         </div>
     )
 }

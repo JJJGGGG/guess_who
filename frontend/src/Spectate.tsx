@@ -1,32 +1,32 @@
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import useRoom from "./hooks/useRoom";
 import Chat from "./Chat";
+import DisconnectBanner from "./DisconnectBanner";
 
 function Spectate() {
-    const [searchParams] = useSearchParams();
-
     const {roomId} = useParams();
 
     const [room] = useRoom(roomId)
 
     if(!(room?.boards.length == 2) || !room.boards[0].tiles.length || !room.boards[1].tiles.length) {
         return <div>
-            <Link to={`/?playerId=${searchParams.get('playerId')}`} className="rounded text-white bg-red-600 px-2 py-1 mb-2">Exit</Link>
+            <Link to="/" className="rounded text-white bg-red-600 px-2 py-1 mb-2">Exit</Link>
             <div>
                 Waiting for players to join...
             </div>
 
-            <Chat />
+            <Chat readOnly />
         </div>
     }
 
     return <div >
-        <Link to={`/?playerId=${searchParams.get('playerId')}`} className="rounded text-white bg-red-600 px-2 py-1 mb-2">Exit</Link>
+        <Link to="/" className="rounded text-white bg-red-600 px-2 py-1 mb-2">Exit</Link>
+        <DisconnectBanner room={room} />
         {
-            room?.boards.map((board) => 
+            room?.boards.map((board) =>
                 <div key={board.id}>
-                    <div>{board.playerId}'s board</div>
-                    
+                    <div>{board.playerName}'s board</div>
+
                 <div className="grid grid-cols-6 gap-4">
                     {board?.tiles.map((tile) => <div key={tile.id}>
                         {!tile.flipped ? <div className={`bg-blue-500 rounded`}>
@@ -43,7 +43,7 @@ function Spectate() {
                 </div>
             )
         }
-        <Chat />
+        <Chat readOnly />
     </div>
 }
 

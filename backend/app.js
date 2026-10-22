@@ -9,10 +9,12 @@ require('dotenv').config()
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 var roomsRouter = require('./routes/rooms');
+var sessionRouter = require('./routes/session');
 
 var app = express();
 app.use(cors({
   origin: process.env.FRONTEND_URL,
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
 console.log(process.env.FRONTEND_URL)
@@ -26,6 +28,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
 app.use('/rooms', roomsRouter);
+app.use('/session', sessionRouter);
 
 
 module.exports = app;

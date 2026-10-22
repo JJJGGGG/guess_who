@@ -1,22 +1,49 @@
-import { useParams, useSearchParams, createSearchParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import useTiles from "./hooks/useBoard";
+import useRoom from "./hooks/useRoom";
+import usePlayer from "./hooks/usePlayer";
 import Chat from "./Chat";
+import DisconnectBanner from "./DisconnectBanner";
+import { apiFetch } from "./api";
 
 function Game() {
-    const [searchParams] = useSearchParams();
     const { roomId } = useParams()
     const navigate = useNavigate()
+    const { player } = usePlayer()
 
-    const [board, switchTile] = useTiles(searchParams.get("playerId") ?? undefined, roomId)
+    const [board, switchTile] = useTiles(roomId)
+    const [room] = useRoom(roomId)
+
+    // Name of the opponent once seen, so we can tell when their grace period
+    // expired and their board was removed.
+    const opponentName = useRef<string>()
+    const [leftName, setLeftName] = useState<string>()
+
+    useEffect(() => {
+        if(!room) {
+            return
+        }
+        // Our own grace period expired while we were away.
+        if(!room.boards.some((b) => b.playerId == player?.id)) {
+            navigate("/")
+            return
+        }
+        const opponent = room.boards.find((b) => b.playerId != player?.id)
+        if(opponent) {
+            opponentName.current = opponent.playerName
+        } else if(opponentName.current) {
+            setLeftName(opponentName.current)
+            const timeout = setTimeout(() => navigate(`/rooms/${roomId}`), 3000)
+            return () => clearTimeout(timeout)
+        }
+    }, [room])
 
     async function selectCharacter(row: number, col: number) {
-        await fetch(import.meta.env.VITE_BACKEND_URL + "/rooms/selectcharacter", {
+        await apiFetch("/rooms/selectcharacter", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
             body: JSON.stringify({
-                boardId: board?.id,
+                roomId: parseInt(roomId || ""),
                 row,
                 col
             })
@@ -24,27 +51,23 @@ function Game() {
     }
 
     async function leaveRoom() {
-        await fetch(import.meta.env.VITE_BACKEND_URL + "/rooms/leave", {
-            headers: {
-                "Content-Type": "application/json"
-            },
+        await apiFetch("/rooms/leave", {
             method: "post",
             body: JSON.stringify({
-                playerId: searchParams.get("playerId"),
                 roomId: parseInt(roomId || "")
             })
         })
-        navigate({
-            pathname: "/",     
-            search: createSearchParams({
-                playerId: searchParams.get("playerId") || ""
-            }).toString()
-        })
+        navigate("/")
+    }
+
+    if(leftName) {
+        return <div>{leftName} left the game. Returning to the room...</div>
     }
 
     if(board?.chosenCol == undefined || board.chosenRow == undefined) {
         return (
             <div>
+                <DisconnectBanner room={room} />
                 <div className="text-xl">Select your character</div>
                 <div className="grid grid-cols-6 gap-4">
             {board?.tiles.map((tile) => <div key={tile.id} className="bg-blue-500" onClick={() => selectCharacter(tile.row, tile.col)}>
@@ -57,6 +80,7 @@ function Game() {
 
 
     return <div>
+        <DisconnectBanner room={room} />
         <button className="rounded text-white bg-red-600 px-2 py-1 mb-2 ml-2" onClick={leaveRoom}>Exit Game</button>
         <div className="grid grid-cols-6 gap-4">
             {board?.tiles.map((tile) => <div key={tile.id}>

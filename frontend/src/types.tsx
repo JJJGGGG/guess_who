@@ -1,3 +1,8 @@
+export type Player = {
+    id: string,
+    name: string
+}
+
 export type Room = {
     id: number,
     boards: Board[]
@@ -6,9 +11,11 @@ export type Room = {
 export type Board = {
     id: number,
     playerId: string,
+    playerName: string,
     tiles: Tile[]
     chosenRow?: number,
-    chosenCol?: number
+    chosenCol?: number,
+    disconnectedAt?: string | null
 }
 
 export type Tile = {
