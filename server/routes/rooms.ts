@@ -193,7 +193,7 @@ router.post('/start', requireAuth, validate(roomActionSchema), async function(re
         col
       }))
     })))
-  } catch(e) {
+  } catch {
     // A board was deleted in between (leave or sweep). Undo the claim so the
     // room can be started again once it has two players.
     await prisma.room.update({ where: { id: roomId }, data: { started: false } }).catch(console.error)

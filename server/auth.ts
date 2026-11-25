@@ -41,7 +41,7 @@ export function verify(token: unknown): Player | null {
     const { sub, name, exp } = JSON.parse(Buffer.from(payload, 'base64url').toString())
     if (typeof sub !== 'string' || typeof name !== 'string' || !(exp > Date.now())) return null
     return { id: sub, name }
-  } catch (e) {
+  } catch {
     return null
   }
 }

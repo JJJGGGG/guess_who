@@ -29,7 +29,7 @@ module.exports = {
       files: ['server/**/*.test.ts'],
       env: { jest: true },
       rules: {
-        '@typescript-eslint/no-var-requires': 'off',
+        '@typescript-eslint/no-require-imports': 'off',
       },
     },
     {
@@ -38,7 +38,7 @@ module.exports = {
       files: ['client/**/*.test.{ts,tsx}', 'client/test/**'],
       env: { jest: true, node: true },
       rules: {
-        '@typescript-eslint/no-var-requires': 'off',
+        '@typescript-eslint/no-require-imports': 'off',
         '@typescript-eslint/no-explicit-any': 'off',
         'react-refresh/only-export-components': 'off',
       },
