@@ -141,7 +141,7 @@ router.post('/start', requireAuth, async function(req, res, next) {
 
     const io = req.app.get("socketio")
 
-    io.emit("startGame", roomId)
+    io.to(room.boards.map(b => "player:" + b.playerId)).emit("startGame", roomId)
 
     updateRooms(io)
 
@@ -208,13 +208,30 @@ router.post("/selectcharacter", requireAuth, async function(req, res, next) {
     return res.sendStatus(403)
   }
 
-  const board = await prisma.board.update({
+  const inRange = (n) => Number.isInteger(n) && n >= 0 && n <= 5
+  if(!inRange(row) || !inRange(col)) {
+    return res.sendStatus(400)
+  }
+
+  // Conditional update so two concurrent requests can't both set a character.
+  const updated = await prisma.board.updateMany({
     where: {
-      id: owned.id
+      id: owned.id,
+      chosenRow: null
     },
     data: {
       chosenCol: col,
       chosenRow: row
+    }
+  })
+
+  if(!updated.count) {
+    return res.sendStatus(409)
+  }
+
+  const board = await prisma.board.findUnique({
+    where: {
+      id: owned.id
     }
   })
 
@@ -226,7 +243,9 @@ router.post("/selectcharacter", requireAuth, async function(req, res, next) {
 router.get("/message", async function(req, res, next) {
   const roomId = parseInt(req.query.roomId);
 
-  console.log("rid" + roomId)
+  if(Number.isNaN(roomId)) {
+    return res.sendStatus(400)
+  }
 
   const room = await prisma.room.findFirst({
     where: { id: roomId },
@@ -234,6 +253,10 @@ router.get("/message", async function(req, res, next) {
       messages: true
     }
   })
+
+  if(!room) {
+    return res.sendStatus(404)
+  }
 
   return res.json(room.messages)
 })

@@ -75,7 +75,6 @@ function addWebsockets(server, app) {
         socket.join("player:" + playerId)
 
         socket.on('disconnect', async () => {
-            console.log('a user disconnected');
             const others = (await io.in("player:" + playerId).fetchSockets())
                 .filter(s => s.id !== socket.id)
             if(others.length) {
