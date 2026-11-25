@@ -1,14 +1,19 @@
 import { useNavigate, useParams } from "react-router-dom";
 import useRoom from "./hooks/useRoom";
+import usePlayer from "./hooks/usePlayer";
 import { useEffect } from "react";
 import { socket } from "./socket";
 import Chat from "./Chat";
 import DisconnectBanner from "./DisconnectBanner";
 import { apiFetch } from "./api";
+import Button from "./ui/Button";
+import PlayerBadge from "./ui/PlayerBadge";
+import { LogOutIcon } from "./ui/icons";
 
 function Room() {
     const {roomId} = useParams()
     const navigate = useNavigate()
+    const { player } = usePlayer()
 
     const [room] = useRoom(roomId)
 
@@ -45,24 +50,32 @@ function Room() {
         })
     }
 
-    return <div>
-        <div className="font-bold mb-2">Room {roomId}</div>
-        <DisconnectBanner room={room} />
-        <div>
-            {room?.boards.length == 2 ?
-                <button className="rounded text-white bg-sky-600 px-2 py-1 mb-2" onClick={startGame}>Start Game</button> :
-                ""
-            }
-            <button className="rounded text-white bg-red-600 px-2 py-1 mb-2 ml-2" onClick={leaveRoom}>Leave room</button>
-        </div>
-        <div className="font-bold">Players:</div>
-        <div>{room?.boards.map((b) =>
-            <div className="mt-1" key={b.id}>
-                {b.playerName}
+    // You first, in your seat colour; then the opponent.
+    const me = room?.boards.find((b) => b.playerId == player?.id)
+    const other = room?.boards.find((b) => b.playerId != player?.id)
+    const ready = room?.boards.length == 2
+
+    return <div className="grid gap-6 w-full max-w-4xl mx-auto">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+            <h1 className="gw-display">Room <span className="gw-code">#{roomId}</span></h1>
+            <div className="flex gap-2">
+                <Button variant="danger" onClick={leaveRoom}><LogOutIcon />Leave room</Button>
+                <Button variant="primary" onClick={startGame} disabled={!ready}>Start game</Button>
             </div>
-        )}</div>
-        <div>
-            <Chat />
+        </div>
+        <DisconnectBanner room={room} />
+        <div className="grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] items-start">
+            <section className="gw-panel">
+                <h2 className="gw-label">Players</h2>
+                <div className="grid gap-2 justify-items-start">
+                    <PlayerBadge seat={1} name={me?.playerName} you />
+                    <PlayerBadge seat={2} name={other?.playerName} />
+                </div>
+                {!ready && <p className="text-[13px] leading-[18px] text-ink-muted">Waiting for a second player. Share the room number <span className="gw-code">#{roomId}</span>.</p>}
+            </section>
+            <section className="gw-panel">
+                <Chat />
+            </section>
         </div>
     </div>
 }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { socket } from "./socket";
+import Banner from "./ui/Banner";
+import { LoaderIcon, WifiOffIcon } from "./ui/icons";
 
 // Tells this tab that its own socket dropped. socket.io reconnects on its own;
 // on localhost it does not react to the browser's "offline" event, so this
@@ -23,7 +25,7 @@ export default function ConnectionBanner() {
         return null
     }
 
-    return <div className="rounded border border-red-500 bg-red-100 px-2 py-1 mb-2">
-        Connection lost — reconnecting...
-    </div>
+    return <Banner variant="danger" icon={<WifiOffIcon size={20} />} trailing={<LoaderIcon size={20} className="gw-spin" />}>
+        <b>Connection lost.</b> Reconnecting…
+    </Banner>
 }

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Room } from "../../shared/types";
 import usePlayer from "./hooks/usePlayer";
+import Banner from "./ui/Banner";
+import { ClockIcon } from "./ui/icons";
+
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 
 // Shows a countdown for every other player in the room who is in their
 // reconnect grace period.
@@ -21,9 +25,9 @@ export default function DisconnectBanner({ room }: { room?: Room }) {
     return <>
         {away.map((b) => {
             const left = Math.max(0, Math.ceil((Date.parse(b.disconnectedAt!) + graceSeconds * 1000 - now) / 1000))
-            return <div key={b.id} className="rounded border border-yellow-500 bg-yellow-100 px-2 py-1 mb-2">
-                {b.playerName} disconnected — waiting {left}s for them to come back...
-            </div>
+            return <Banner key={b.id} variant="warn" icon={<ClockIcon size={20} />}>
+                <b>{b.playerName} disconnected.</b> Waiting <span className="gw-code">{clock(left)}</span> for them to come back.
+            </Banner>
         })}
     </>
 }

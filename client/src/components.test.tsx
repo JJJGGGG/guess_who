@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { fetchMock, jsonResponse } from '../test/utils'
@@ -61,10 +61,10 @@ describe('Layout', () => {
     test('loading and ready states', () => {
         playerState.status = 'loading'
         const { rerender } = renderLayout()
-        expect(screen.getByText('Loading...')).toBeInTheDocument()
+        expect(screen.getByText('Loading…')).toBeInTheDocument()
         playerState.status = 'ready'
         rerender(<MemoryRouter><Layout /></MemoryRouter>)
-        expect(screen.getByText('Player name: Me')).toBeInTheDocument()
+        expect(screen.getByText('Me')).toBeInTheDocument()
     })
 
     test('validates the name before logging in', async () => {
@@ -109,14 +109,14 @@ describe('Chat', () => {
         ] })
         renderChat()
         expect(await screen.findByText('mine')).toBeInTheDocument()
-        expect(screen.getByText('You:')).toBeInTheDocument()
-        expect(screen.getByText('Bob:')).toBeInTheDocument()
+        expect(screen.getByText('You')).toBeInTheDocument()
+        expect(screen.getByText('Bob')).toBeInTheDocument()
     })
 
     test('refuses an empty message', async () => {
         serve({})
         renderChat()
-        await userEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Send' }))
         expect(await screen.findByText('Write a message first')).toBeInTheDocument()
         expect(postsTo('/rooms/message')).toHaveLength(0)
     })
@@ -126,13 +126,13 @@ describe('Chat', () => {
         renderChat()
         const input = screen.getByRole('textbox')
         await userEvent.type(input, ' hello ')
-        await userEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Send' }))
         await waitFor(() => expect(input).toHaveValue(''))
         expect(JSON.parse(postsTo('/rooms/message')[0][1].body)).toEqual({ message: 'hello', roomId: 3 })
 
         serve({ 'POST /api/rooms/message': 403 })
         await userEvent.type(input, 'again')
-        await userEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Send' }))
         expect(await screen.findByText("Couldn't send the message, try again")).toBeInTheDocument()
         expect(input).toHaveValue('again')
     })
@@ -151,9 +151,9 @@ describe('Rooms', () => {
     test('Join only for rooms with a free seat that I am not in', async () => {
         serve({ 'GET /api/rooms': [summary(1, []), summary(2, ['a', 'b']), summary(3, ['me'])] })
         renderAt(<Rooms />, '/')
-        await screen.findByText(/Room 1/)
+        const room1 = await screen.findByRole('listitem', { name: 'Room 1' })
         expect(screen.getAllByRole('button', { name: 'Join' })).toHaveLength(1)
-        expect(screen.getByText(/Room 1/)).toContainElement(screen.getByRole('button', { name: 'Join' }))
+        expect(within(room1).getByRole('button', { name: 'Join' })).toBeInTheDocument()
         expect(screen.getAllByRole('link', { name: 'Spectate' })).toHaveLength(3)
     })
 
@@ -185,7 +185,9 @@ describe('Rooms', () => {
         renderAt(<Rooms />, '/')
         await flush()
         act(() => socket.trigger('updateRooms', [summary(9, ['x'])]))
-        expect(screen.getByText(/Room 9 \(1\/2\)/)).toBeInTheDocument()
+        const room9 = screen.getByRole('listitem', { name: 'Room 9' })
+        expect(within(room9).getByText('x')).toBeInTheDocument()
+        expect(within(room9).getByText('Open seat')).toBeInTheDocument()
     })
 })
 
@@ -196,9 +198,9 @@ describe('Room', () => {
         serve({ 'GET /api/rooms/3': { id: 3, boards: [publicBoard('me')] } })
         renderRoom()
         await screen.findByText('ME')
-        expect(screen.queryByRole('button', { name: 'Start Game' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Start game' })).toBeDisabled()
         act(() => socket.trigger('updateRoom', { id: 3, boards: [publicBoard('me'), publicBoard('bob')] }))
-        await userEvent.click(screen.getByRole('button', { name: 'Start Game' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Start game' }))
         expect(JSON.parse(postsTo('/rooms/start')[0][1].body)).toEqual({ roomId: 3 })
     })
 
@@ -227,7 +229,7 @@ describe('Game', () => {
     test('pick a character first', async () => {
         serve({ 'GET /api/rooms/3': twoPlayers, 'GET /api/rooms/3/board': ownBoard() })
         const { container } = renderGame()
-        expect(await screen.findByText('Select your character')).toBeInTheDocument()
+        expect(await screen.findByText('Pick your character')).toBeInTheDocument()
         await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(36))
         await userEvent.click(container.querySelectorAll('img')[8])
         expect(JSON.parse(postsTo('/rooms/selectcharacter')[0][1].body)).toEqual({ roomId: 3, row: 1, col: 2 })
@@ -236,11 +238,12 @@ describe('Game', () => {
     test('then the board with flipped tiles and my character', async () => {
         serve({ 'GET /api/rooms/3': twoPlayers, 'GET /api/rooms/3/board': ownBoard([4, 5], [0, 1]) })
         const { container } = renderGame()
-        expect(await screen.findByText(/Your Character/)).toBeInTheDocument()
+        expect(await screen.findByText('Your character')).toBeInTheDocument()
         const imgs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'))
-        expect(imgs).toHaveLength(34 + 1)
-        expect(imgs).not.toContain('/0_0.webp')
+        expect(imgs).toHaveLength(36 + 1)
         expect(imgs.at(-1)).toBe('/4_5.webp')
+        expect(screen.getByRole('button', { name: 'Character 1' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'Character 3' })).toHaveAttribute('aria-pressed', 'false')
 
         await userEvent.click(container.querySelector('img[src="/2_3.webp"]')!)
         expect(JSON.parse(postsTo('/rooms/tiles/flip')[0][1].body)).toEqual({ roomId: 3, row: 2, col: 3 })
@@ -258,7 +261,7 @@ describe('Game', () => {
         renderGame()
         await act(() => jest.advanceTimersByTimeAsync(0))
         act(() => socket.trigger('updateRoom', { id: 3, boards: [publicBoard('me')] }))
-        expect(screen.getByText('BOB left the game. Returning to the room...')).toBeInTheDocument()
+        expect(screen.getByText('BOB left the game. Back to the room…')).toBeInTheDocument()
         expect(location()).toBe('/rooms/3/game')
         act(() => jest.advanceTimersByTime(3000))
         expect(location()).toBe('/rooms/3')
@@ -277,7 +280,7 @@ describe('Spectate', () => {
     test('waits until both boards exist', async () => {
         serve({ 'GET /api/rooms/3': { id: 3, boards: [publicBoard('al', { tiles: tiles() }), publicBoard('bob')] } })
         renderSpectate()
-        expect(await screen.findByText('Waiting for players to join...')).toBeInTheDocument()
+        expect(await screen.findByText('Waiting for players to join…')).toBeInTheDocument()
     })
 
     test('shows both boards and who has chosen, never which character', async () => {
@@ -287,9 +290,10 @@ describe('Spectate', () => {
         ] } })
         const { container } = renderSpectate()
         expect(await screen.findByText("AL's board")).toBeInTheDocument()
-        expect(screen.getByText('Character chosen ✓')).toBeInTheDocument()
-        expect(screen.getByText('Choosing a character...')).toBeInTheDocument()
-        expect(container.querySelectorAll('img')).toHaveLength(35 + 36)
+        expect(screen.getByText('Locked in')).toBeInTheDocument()
+        expect(screen.getByText('Choosing…')).toBeInTheDocument()
+        expect(container.querySelectorAll('img')).toHaveLength(36 + 36)
+        expect(screen.getByRole('img', { name: 'Character 1, flipped down' })).toBeInTheDocument()
         expect(screen.queryByRole('textbox')).toBeNull()
     })
 })
@@ -302,13 +306,13 @@ describe('DisconnectBanner', () => {
             publicBoard('me', { disconnectedAt: '2026-01-01T00:00:00Z' }),
             publicBoard('bob', { disconnectedAt: '2026-01-01T00:00:00Z' }),
         ] }
-        render(<DisconnectBanner room={room} />)
-        expect(screen.getByText('BOB disconnected — waiting 20s for them to come back...')).toBeInTheDocument()
-        expect(screen.queryByText(/ME disconnected/)).toBeNull()
+        const { container } = render(<DisconnectBanner room={room} />)
+        expect(container).toHaveTextContent('BOB disconnected. Waiting 0:20 for them to come back.')
+        expect(container).not.toHaveTextContent('ME disconnected')
         act(() => jest.advanceTimersByTime(5000))
-        expect(screen.getByText(/waiting 15s/)).toBeInTheDocument()
+        expect(container).toHaveTextContent('Waiting 0:15')
         act(() => jest.advanceTimersByTime(60000))
-        expect(screen.getByText(/waiting 0s/)).toBeInTheDocument()
+        expect(container).toHaveTextContent('Waiting 0:00')
     })
 
     test('renders nothing when everyone is connected', () => {
