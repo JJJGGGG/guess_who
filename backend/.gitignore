@@ -59,3 +59,12 @@ typings/
 
 # next.js build output
 .next
+
+# Local env files and database
+.env
+*.env.bak
+prisma/*.db
+prisma/*.db-journal
+
+# TLS certificates and private keys
+cert/
