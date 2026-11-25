@@ -6,7 +6,7 @@ function useRooms(): [Room[], (r: Room[]) => void] {
     const [rooms, setRooms] = useState<Room[]>([])
 
     useEffect(() => {
-        fetch(import.meta.env.VITE_BACKEND_URL + "/rooms")
+        fetch("/api/rooms")
             .then((res) => res.json())
             .then((res) => setRooms(res))
     }, [])

@@ -35,7 +35,7 @@ export function onLogout(listener: () => void) {
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
     const token = getToken();
-    const res = await fetch(import.meta.env.VITE_BACKEND_URL + path, {
+    const res = await fetch("/api" + path, {
         ...init,
         headers: {
             "Content-Type": "application/json",

@@ -43,11 +43,9 @@ async function sweep(io) {
 }
 
 function addWebsockets(server, app) {
+    // No `cors` option: the client is served from the same origin. Auth is a
+    // token in the handshake, so a cross-site connection gets nothing.
     const io = new Server(server, {
-        cors: {
-            origin: process.env.FRONTEND_URL,
-            methods: ["GET", "POST"]
-            },
         // A silently dropped connection (lost network, no TCP close) is only
         // noticed by the heartbeat: worst case pingInterval + pingTimeout.
         // The defaults (25s + 20s) left the opponent waiting ~45s before the

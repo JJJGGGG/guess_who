@@ -1,0 +1,27 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Logs
+*.log
+
+# Env files (keep the example)
+.env
+.env.*
+!.env.example
+*.env.bak
+
+# Local SQLite database
+prisma/*.db
+prisma/*.db-journal
+
+# TLS certificates and private keys
+cert/
+*.pem
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?
