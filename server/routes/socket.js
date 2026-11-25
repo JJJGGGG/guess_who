@@ -1,7 +1,7 @@
 const { Server } = require("socket.io");
 const http = require('http');
 var {PrismaClient} = require('@prisma/client')
-const { updateLobby, updateRoom, roomChannel, LOBBY, GRACE_SECONDS } = require( '../utils');
+const { updateLobby, updateRoom, resetGames, roomChannel, LOBBY, GRACE_SECONDS } = require( '../utils');
 const { socketAuth } = require('../auth')
 const prisma = new PrismaClient()
 
@@ -32,13 +32,7 @@ async function sweep(io) {
     }
 
     const roomIds = [...new Set(expired.map(b => b.roomId))]
-    await prisma.tile.deleteMany({
-        where: { board: { roomId: { in: roomIds } } }
-    })
-    await prisma.board.updateMany({
-        where: { roomId: { in: roomIds } },
-        data: { chosenRow: null, chosenCol: null }
-    })
+    await resetGames(roomIds)
     await updateLobby(io)
     await Promise.all(roomIds.map(id => updateRoom(io, id)))
 }

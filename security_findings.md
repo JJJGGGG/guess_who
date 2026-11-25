@@ -127,19 +127,23 @@ Nothing checks the type or length of playerId, roomId, message, row, col or sock
 2. Use express-validator on each route.
 3. Write the checks by hand in each handler. This adds no dependency but is repetitive and easy to forget.
 
-**16. The client picks its own socketId, and everyone's socketId is broadcast.**
+**16. The client picks its own socketId, and everyone's socketId is broadcast.** ✅ Done
 `/api/rooms/join` stores whatever socketId it's sent, and `updateRooms` shows every player's socketId. An attacker can attach a board to the victim's socket, which also breaks the cleanup that runs on disconnect.
 *Files:* `rooms.js:25, 40-46`, `socket.js:23-38`, `Rooms.tsx:40`
 1. Join over the socket (`socket.on("join", ...)`), so the server uses its own `socket.id`.
 2. Keep joining over HTTP, but check that the socketId is a connected socket whose handshake token matches the player (needs #20).
 3. At minimum, remove socketId from everything sent to clients.
 
-**17. Simultaneous requests can break `/api/rooms/join` and `/api/rooms/start`.**
+> **Fixed (2026-11-25), via #20 (beyond option 1):** there is no socketId anymore. Migration `20261022021129_auth_grace_period` dropped `Board.socketId`. `/api/rooms/join` takes the player from the signed token (`requireAuth`), and each socket is authenticated by its handshake token (`socketAuth`) and joined to a server-side `player:<id>` channel. Disconnect cleanup is per player (`disconnectedAt` + grace-period sweep in `server/routes/socket.js`). No socket id is sent to clients (`lobbySelect`, `publicRoom`, `privateBoard` in `server/utils.js`).
+
+**17. Simultaneous requests can break `/api/rooms/join` and `/api/rooms/start`.** ✅ Done
 `/join` checks capacity and inserts in two separate queries, so parallel joins can put more than 2 players in a room. `/start` has the same gap, so parallel starts both create tiles and then crash.
 *Files:* `rooms.js:36-46, 103-127`, `prisma/schema.prisma` (unique constraint on Tile)
 1. Do the check and the write in one interactive `prisma.$transaction`. SQLite runs writes one at a time.
 2. Let the database enforce it: add a `slot` field (0 or 1) on Board with `@@unique([roomId, slot])`, and a `started` flag on Room that is set with a conditional `updateMany({where: {id, started: false}})`.
 3. Use a per-room lock in the Node process. This only works with a single server instance.
+
+> **Fixed (2026-11-25), option 2:** migration `20261125000000_board_slot_room_started` adds `Board.slot` (0 or 1) with `@@unique([roomId, slot])` and `@@unique([roomId, playerId])`, plus `Room.started`. `/join` picks the free slot, and a concurrent duplicate fails in the database and returns 409. `/start` claims the room with `updateMany({where: {id, started: false}})`, so only one request creates tiles. Both boards' tiles are created in one transaction, and if that fails the claim is undone. New `resetGames` in `server/utils.js` (tiles, chosen characters, `started`) runs on `/leave` as well as in the grace sweep. Before, `/leave` left the remaining player's tiles, so the room could never start again. The migration backfills slots and `started`, and drops boards that would break the new constraints. Checked with 6 parallel joins (2 succeed), 5 parallel self-joins (1 succeeds), 6 parallel starts (1 creates tiles, 36 per board) and leave → rejoin → start.
 
 **18. Async errors aren't caught globally (beyond the null checks in #2).**
 Any other Prisma error, such as a wrong value type, still crashes the server.

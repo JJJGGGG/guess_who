@@ -2,7 +2,7 @@
 var express = require('express');
 var router = express.Router();
 var {PrismaClient} = require('@prisma/client')
-const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard } = require('../utils')
+const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard, resetGames, isUniqueViolation } = require('../utils')
 const { requireAuth } = require('../auth')
 
 const prisma = new PrismaClient()
@@ -41,13 +41,28 @@ router.post('/join', requireAuth, async function(req, res, next) {
     return res.sendStatus(400)
   }
 
-  const board = await prisma.board.create({
-    data: {
-      roomId,
-      playerId,
-      playerName: req.player.name
-    },
-  })
+  // The check above can be stale by the time we insert. The unique
+  // (roomId, slot) and (roomId, playerId) indexes make a concurrent second
+  // insert fail, so a room never gets a third board or the same player twice.
+  const taken = new Set(room.boards.map(b => b.slot))
+  const slot = taken.has(0) ? 1 : 0
+
+  let board
+  try {
+    board = await prisma.board.create({
+      data: {
+        roomId,
+        playerId,
+        playerName: req.player.name,
+        slot
+      },
+    })
+  } catch(e) {
+    if(isUniqueViolation(e)) {
+      return res.sendStatus(409)
+    }
+    throw e
+  }
   const io = req.app.get("socketio")
   await updateLobby(io)
   await updateRoom(io, roomId)
@@ -89,6 +104,8 @@ router.post('/leave', requireAuth, async function(req, res, next) {
       },
     },
   })
+  // The game can't go on with one player; let the room start a new one.
+  await resetGames([roomId])
   const io = req.app.get("socketio")
   await updateLobby(io)
   await updateRoom(io, roomId)
@@ -104,11 +121,7 @@ router.post('/start', requireAuth, async function(req, res, next) {
       id: roomId,
     },
     include: {
-      boards: {
-        include: {
-          tiles: true
-        }
-      }
+      boards: true
     }
   })
 
@@ -116,43 +129,46 @@ router.post('/start', requireAuth, async function(req, res, next) {
     return res.sendStatus(403)
   }
 
-  if (room.boards.length == 2 && !room.boards[0].tiles.length) {
-    for(const board of room.boards) {
-      await prisma.board.update({
-        where: {
-          id: board.id
-        },
-        data: {
-          tiles: {
-            create: [
-              Array.from({length: 6}, (e, i)=> i),
-              Array.from({length: 6}, (e, i)=> i)
-            ].reduce((a, b) => a.flatMap(d => b.map(e => [d, e].flat()))).map(([i, j]) => ({
-              flipped: false,
-              photoUrl: "",
-              name: "",
-              row: i,
-              col: j
-            }))
-          }
-        },
-        include: {
-          tiles: true
-        }
-      })
-    }
-
-
-    const io = req.app.get("socketio")
-
-    io.to(room.boards.map(b => "player:" + b.playerId)).emit("startGame", roomId)
-
-    updateRoom(io, roomId).catch(console.error)
-
-    return res.json({started: true})
+  if(room.boards.length != 2) {
+    return res.json({started: false})
   }
 
-  return res.json({started: false})
+  // Only the request that flips started false -> true creates tiles, so two
+  // parallel starts can't both run.
+  const claimed = await prisma.room.updateMany({
+    where: { id: roomId, started: false },
+    data: { started: true }
+  })
+  if(!claimed.count) {
+    return res.json({started: false})
+  }
+
+  const positions = Array.from({length: 36}, (e, i) => ({ row: Math.floor(i / 6), col: i % 6 }))
+  try {
+    await prisma.$transaction(room.boards.map(board => prisma.tile.createMany({
+      data: positions.map(({ row, col }) => ({
+        boardId: board.id,
+        flipped: false,
+        photoUrl: "",
+        name: "",
+        row,
+        col
+      }))
+    })))
+  } catch(e) {
+    // A board was deleted in between (leave or sweep). Undo the claim so the
+    // room can be started again once it has two players.
+    await prisma.room.update({ where: { id: roomId }, data: { started: false } }).catch(console.error)
+    return res.sendStatus(409)
+  }
+
+  const io = req.app.get("socketio")
+
+  io.to(room.boards.map(b => "player:" + b.playerId)).emit("startGame", roomId)
+
+  updateRoom(io, roomId).catch(console.error)
+
+  return res.json({started: true})
 })
 
 router.post("/tiles/flip", requireAuth, async function(req, res, next) {

@@ -52,6 +52,25 @@ function privateBoard(board) {
   }
 }
 
+// After a player leaves (or is swept), the game in those rooms is over: drop
+// every tile, clear chosen characters and let /start run again.
+async function resetGames(roomIds) {
+  await prisma.$transaction([
+    prisma.tile.deleteMany({ where: { board: { roomId: { in: roomIds } } } }),
+    prisma.board.updateMany({
+      where: { roomId: { in: roomIds } },
+      data: { chosenRow: null, chosenCol: null }
+    }),
+    prisma.room.updateMany({
+      where: { id: { in: roomIds } },
+      data: { started: false }
+    })
+  ])
+}
+
+// Prisma's error for a unique constraint violation.
+const isUniqueViolation = (e) => e && e.code === 'P2002'
+
 async function getPublicRoom(roomId) {
   const room = await prisma.room.findUnique({ where: { id: roomId }, include: roomInclude })
   return room && publicRoom(room)
@@ -82,6 +101,8 @@ module.exports = {
   lobbySelect,
   getPublicRoom,
   privateBoard,
+  resetGames,
+  isUniqueViolation,
   updateLobby,
   updateRoom,
   updateChat
