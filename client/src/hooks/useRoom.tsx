@@ -3,8 +3,10 @@ import type { Room } from "../../../shared/types"
 import { socket } from "../socket"
 import useWatch from "./useWatch"
 
-function useRoom(roomId: string | undefined): [Room | undefined, (r: Room) => void] {
-    const [room, setRoom] = useState<Room>()
+// undefined while loading; null once the room is known to be gone (never
+// existed, or deleted by the cleanup job).
+function useRoom(roomId: string | undefined): [Room | null | undefined, (r: Room) => void] {
+    const [room, setRoom] = useState<Room | null>()
 
     useWatch(roomId ? Number(roomId) : undefined)
 
@@ -13,7 +15,7 @@ function useRoom(roomId: string | undefined): [Room | undefined, (r: Room) => vo
             return
         }
         fetch(`/api/rooms/${encodeURIComponent(roomId)}`)
-            .then((res) => res.ok ? res.json() : undefined)
+            .then((res) => res.ok ? res.json() : (res.status == 404 ? null : undefined))
             .then((res) => setRoom(res))
     }, [roomId])
 
@@ -24,7 +26,7 @@ function useRoom(roomId: string | undefined): [Room | undefined, (r: Room) => vo
             if(room && room.id.toString() != roomId) {
                 return
             }
-            setRoom(room ?? undefined)
+            setRoom(room)
         }
         socket.on("updateRoom", updateRoom)
 

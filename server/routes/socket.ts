@@ -14,6 +14,9 @@ const CLEANUP_INTERVAL_MS = 60 * 1000
 // Empty rooms older than this are deleted. Long enough that a fresh room isn't
 // removed before anyone joins it.
 const EMPTY_ROOM_TTL_MINUTES = Number(process.env.EMPTY_ROOM_TTL_MINUTES || 10)
+// Rooms with no game action (join, leave, start, flip, pick, chat) for this
+// long are deleted even with players in them, so abandoned rooms don't pile up.
+const ROOM_IDLE_MINUTES = Number(process.env.ROOM_IDLE_MINUTES || 30)
 
 // Deletes boards whose player stayed disconnected longer than GRACE_SECONDS,
 // then resets the opponent's board in those rooms so a new game can start.
@@ -43,28 +46,87 @@ export async function sweep(io: Broadcaster): Promise<void> {
     await Promise.all(roomIds.map(id => updateRoom(io, id)))
 }
 
-// Deletes rooms nobody is in (messages go with them via onDelete: Cascade).
-// Abandoned rooms end up here once sweep removes their disconnected players.
+// Deletes rooms nobody is in, and rooms idle longer than ROOM_IDLE_MINUTES
+// (boards, tiles and messages go with them via onDelete: Cascade). Anyone
+// still on the page gets updateRoom(null) and is sent back to the lobby.
 export async function cleanupRooms(io: Broadcaster): Promise<void> {
-    const deleted = await prisma.room.deleteMany({
-        where: {
-            boards: { none: {} },
-            createdAt: { lt: new Date(Date.now() - EMPTY_ROOM_TTL_MINUTES * 60 * 1000) }
-        }
-    })
-    if(deleted.count) {
-        await updateLobby(io)
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000)
+    const where = {
+        OR: [
+            { boards: { none: {} }, createdAt: { lt: minutesAgo(EMPTY_ROOM_TTL_MINUTES) } },
+            { lastActivityAt: { lt: minutesAgo(ROOM_IDLE_MINUTES) } }
+        ]
     }
+    const stale = await prisma.room.findMany({ where, select: { id: true } })
+    if(!stale.length) {
+        return
+    }
+    // where is re-checked so a room that saw activity in between is kept.
+    const ids = stale.map(r => r.id)
+    await prisma.room.deleteMany({ where: { ...where, id: { in: ids } } })
+    const gone = new Set((await prisma.room.findMany({ where: { id: { in: ids } }, select: { id: true } })).map(r => r.id))
+    const deleted = ids.filter(id => !gone.has(id))
+    if(!deleted.length) {
+        return
+    }
+    for(const id of deleted) {
+        io.to(roomChannel(id)).emit("updateRoom", null)
+    }
+    await updateLobby(io)
 }
 
-// Rooms the player has a board in, so a (dis)connect is only sent to them.
-async function updatePlayerRooms(io: Broadcaster, playerId: string): Promise<void> {
+// A player is present in a room while one of their tabs watches it (Room and
+// Game pages watch the room channel). Leaving the page (back button, another
+// URL, reload onto the lobby) or closing the last tab starts the grace period;
+// watching the room again within GRACE_SECONDS ends it. The conditional
+// where clauses keep an existing timestamp and make concurrent calls harmless.
+// Calls are chained per player so quick back/forward navigation can't apply
+// an older snapshot after a newer one.
+const presenceQueue = new Map<string, Promise<void>>()
+
+export function syncPresence(io: GameServer, playerId: string, ignoreSocketId?: string): Promise<void> {
+    const run = (presenceQueue.get(playerId) ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => applyPresence(io, playerId, ignoreSocketId))
+    presenceQueue.set(playerId, run)
+    const forget = () => { if(presenceQueue.get(playerId) === run) presenceQueue.delete(playerId) }
+    run.then(forget, forget)
+    return run
+}
+
+async function applyPresence(io: GameServer, playerId: string, ignoreSocketId?: string): Promise<void> {
+    const sockets = (await io.in("player:" + playerId).fetchSockets())
+        .filter(s => s.id !== ignoreSocketId)
+    const watched = new Set<number>()
+    for(const s of sockets) {
+        for(const r of s.rooms) {
+            if(r.startsWith("room:")) {
+                watched.add(Number(r.slice("room:".length)))
+            }
+        }
+    }
+
     const boards = await prisma.board.findMany({
         where: { playerId },
         select: { roomId: true }
     })
     const roomIds = [...new Set(boards.map(b => b.roomId))]
-    await Promise.all(roomIds.map(id => updateRoom(io, id)))
+    const here = roomIds.filter(id => watched.has(id))
+    const away = roomIds.filter(id => !watched.has(id))
+
+    const [restored, marked] = await Promise.all([
+        prisma.board.updateMany({
+            where: { playerId, roomId: { in: here }, disconnectedAt: { not: null } },
+            data: { disconnectedAt: null }
+        }),
+        prisma.board.updateMany({
+            where: { playerId, roomId: { in: away }, disconnectedAt: null },
+            data: { disconnectedAt: new Date() }
+        })
+    ])
+    if(restored.count || marked.count) {
+        await Promise.all(roomIds.map(id => updateRoom(io, id)))
+    }
 }
 
 export type Websockets = {
@@ -104,7 +166,9 @@ export default function addWebsockets(server: http.Server, app: Express): Websoc
         setInterval(() => cleanupRooms(io).catch(console.error), CLEANUP_INTERVAL_MS)
     ]
 
-    io.sockets.on('connection', async function (socket) {
+    // No restore on connect: only watching the room (sent by the page on
+    // every connect) brings a player back.
+    io.sockets.on('connection', function (socket) {
         const playerId = socket.data.player.id;
         socket.join("player:" + playerId)
 
@@ -126,38 +190,14 @@ export default function addWebsockets(server: http.Server, app: Express): Websoc
                 }
             }
             socket.join(channel)
+            syncPresence(io, playerId).catch(console.error)
         })
 
-        socket.on('disconnect', async () => {
-          try {
-            const others = (await io.in("player:" + playerId).fetchSockets())
-                .filter(s => s.id !== socket.id)
-            if(others.length) {
-                return
-            }
-            const marked = await prisma.board.updateMany({
-                where: { playerId, disconnectedAt: null },
-                data: { disconnectedAt: new Date() }
-            })
-            if(marked.count) {
-                updatePlayerRooms(io, playerId).catch(console.error)
-            }
-          } catch(e) {
-            console.error(e)
-          }
+        // socket.io has already removed this socket from its channels; it is
+        // filtered out anyway in case fetchSockets still lists it.
+        socket.on('disconnect', () => {
+            syncPresence(io, playerId, socket.id).catch(console.error)
         })
-
-        try {
-            const restored = await prisma.board.updateMany({
-                where: { playerId, disconnectedAt: { not: null } },
-                data: { disconnectedAt: null }
-            })
-            if(restored.count) {
-                updatePlayerRooms(io, playerId).catch(console.error)
-            }
-        } catch(e) {
-            console.error(e)
-        }
     });
 
     return { io, ready, stop: () => timers.forEach(clearInterval) }

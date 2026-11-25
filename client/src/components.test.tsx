@@ -220,6 +220,14 @@ describe('Room', () => {
         await waitFor(() => expect(location()).toBe('/'))
         expect(postsTo('/rooms/leave')).toHaveLength(1)
     })
+
+    test('goes back to the lobby when the room is deleted', async () => {
+        serve({ 'GET /api/rooms/3': { id: 3, boards: [publicBoard('me')] } })
+        renderRoom()
+        await screen.findByText('Waiting for a second player.', { exact: false })
+        act(() => socket.trigger('updateRoom', null))
+        await waitFor(() => expect(location()).toBe('/'))
+    })
 })
 
 describe('Game', () => {

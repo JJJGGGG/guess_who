@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client'
 import type { Board as DbBoard, Prisma, Room as DbRoom, Tile as DbTile } from '@prisma/client'
 import { object, number } from 'yup'
-import { updateLobby, updateRoom, updateChat, lobbyRooms, getPublicRoom, privateBoard, resetGames, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, validated, trimmedString, ioOf, MAX_OPEN_ROOMS } from '../utils.ts'
+import { updateLobby, updateRoom, updateChat, lobbyRooms, getPublicRoom, privateBoard, resetGames, touchRoom, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, validated, trimmedString, ioOf, MAX_OPEN_ROOMS } from '../utils.ts'
 import { requireAuth, playerOf } from '../auth.ts'
 import type { ApiError, Board, ChatMessage, Room, RoomSummary, StartResult } from '../../shared/types.ts'
 
@@ -96,6 +96,7 @@ router.post('/join', requireAuth, validate(roomActionSchema), async function(req
     }
     throw e
   }
+  await touchRoom(roomId)
   const io = ioOf(req)
   await updateLobby(io)
   await updateRoom(io, roomId)
@@ -141,6 +142,7 @@ router.post('/leave', requireAuth, validate(roomActionSchema), async function(re
   })
   // The game can't go on with one player; let the room start a new one.
   await resetGames([roomId])
+  await touchRoom(roomId)
   const io = ioOf(req)
   await updateLobby(io)
   await updateRoom(io, roomId)
@@ -201,6 +203,7 @@ router.post('/start', requireAuth, validate(roomActionSchema), async function(re
     return
   }
 
+  await touchRoom(roomId)
   const io = ioOf(req)
 
   io.to(room.boards.map(b => "player:" + b.playerId)).emit("startGame", roomId)
@@ -244,6 +247,7 @@ router.post("/tiles/flip", requireAuth, validate(tileSchema), async function(req
       flipped: !tile.flipped,
     },
   })
+  await touchRoom(roomId)
 
   updateRoom(ioOf(req), roomId).catch(console.error)
 
@@ -283,6 +287,7 @@ router.post("/selectcharacter", requireAuth, validate(tileSchema), async functio
     return
   }
 
+  await touchRoom(roomId)
   const board = await prisma.board.findUnique({
     where: {
       id: owned.id
@@ -351,6 +356,7 @@ router.post("/message", requireAuth, validate(messageSchema), async function(req
   await prisma.message.create({
     data: { roomId, message, playerId, playerName }
   })
+  await touchRoom(roomId)
 
   // Keep only the newest MAX_MESSAGES_PER_ROOM.
   const [oldest] = await prisma.message.findMany({

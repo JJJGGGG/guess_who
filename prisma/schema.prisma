@@ -19,6 +19,9 @@ model Room {
   started  Boolean    @default(false)
   // Lets the cleanup job skip rooms that were just created and are still empty.
   createdAt DateTime  @default(now())
+  // Bumped by every game action (join, leave, start, flip, pick, chat). Rooms
+  // idle longer than ROOM_IDLE_MINUTES are deleted by the cleanup job.
+  lastActivityAt DateTime @default(now())
   boards   Board[]
   messages Message[]
 }

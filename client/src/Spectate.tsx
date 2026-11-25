@@ -15,6 +15,11 @@ function Spectate() {
 
     const [room] = useRoom(roomId)
 
+    // The room was deleted (inactive for too long) or never existed.
+    if(room === null) {
+        return <Navigate to="/" replace />
+    }
+
     // Players belong on their own game page. The server never sends chosen
     // characters to the room channel, so this is only a convenience.
     if(room?.boards.some((b) => b.playerId == player?.id)) {

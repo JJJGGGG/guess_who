@@ -17,6 +17,13 @@ function Room() {
 
     const [room] = useRoom(roomId)
 
+    // The room was deleted (inactive for too long) or never existed.
+    useEffect(() => {
+        if(room === null) {
+            navigate("/")
+        }
+    }, [room, navigate])
+
     useEffect(() => {
         function goToGame(id: number) {
             if(id.toString() == roomId){
@@ -63,7 +70,7 @@ function Room() {
                 <Button variant="primary" onClick={startGame} disabled={!ready}>Start game</Button>
             </div>
         </div>
-        <DisconnectBanner room={room} />
+        <DisconnectBanner room={room ?? undefined} />
         <div className="grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] items-start">
             <section className="gw-panel">
                 <h2 className="gw-label">Players</h2>

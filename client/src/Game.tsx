@@ -28,6 +28,11 @@ function Game() {
     const [leftName, setLeftName] = useState<string>()
 
     useEffect(() => {
+        // The room was deleted (inactive for too long) or never existed.
+        if(room === null) {
+            navigate("/")
+            return
+        }
         if(!room) {
             return
         }
@@ -79,7 +84,7 @@ function Game() {
     const standing = board?.tiles.filter((t) => !t.flipped).length ?? 0
 
     return <div className="grid gap-4">
-        <DisconnectBanner room={room} />
+        <DisconnectBanner room={room ?? undefined} />
         <div className="gw-game">
             <section className="grid gap-3 min-w-0">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

@@ -211,6 +211,15 @@ describe('POST /api/rooms/tiles/flip', () => {
 
     expect((await flip()).body.flipped).toBe(false)
   })
+
+  test('counts as activity, postponing the idle cleanup', async () => {
+    const { room, a } = await startedRoom()
+    const old = new Date(Date.now() - 60 * 60000)
+    await prisma.room.update({ where: { id: room.id }, data: { lastActivityAt: old } })
+    await post('/tiles/flip', a, { roomId: room.id, row: 0, col: 0 }).expect(200)
+    const { lastActivityAt } = (await prisma.room.findUnique({ where: { id: room.id } }))!
+    expect(lastActivityAt.getTime()).toBeGreaterThan(old.getTime())
+  })
 })
 
 describe('POST /api/rooms/selectcharacter', () => {

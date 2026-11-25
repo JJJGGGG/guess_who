@@ -155,33 +155,77 @@ describe('private board', () => {
   })
 })
 
-describe('disconnect / reconnect', () => {
+describe('presence', () => {
   const board = async (s: Session) => (await prisma.board.findFirst({ where: { playerId: s.player.id } }))!
+  const away = async (s: Session) => (await board(s)).disconnectedAt !== null
 
-  test('marks the board only when the last tab closes, clears it on reconnect', async () => {
-    const { a } = await startedRoom()
+  test('marks the board only when the last tab on the room closes, clears it when the room is watched again', async () => {
+    const { room, a } = await startedRoom()
     const tab1 = await connected(client(a.token))
     const tab2 = await connected(client(a.token))
-    // The server marks everyone disconnected on boot; connecting clears it.
-    await until(async () => (await board(a)).disconnectedAt === null)
+    tab1.emit('watch', room.id)
+    tab2.emit('watch', room.id)
+    // The server marks everyone disconnected on boot; watching the room clears it.
+    await until(async () => !(await away(a)))
 
     tab1.disconnect()
     await tick(200)
-    expect((await board(a)).disconnectedAt).toBeNull()
+    expect(await away(a)).toBe(false)
 
     tab2.disconnect()
-    await until(async () => (await board(a)).disconnectedAt !== null)
+    await until(() => away(a))
 
-    await connected(client(a.token))
-    await until(async () => (await board(a)).disconnectedAt === null)
+    const tab3 = await connected(client(a.token))
+    tab3.emit('watch', room.id)
+    await until(async () => !(await away(a)))
+  })
+
+  test('going back to the lobby marks the board, coming back clears it', async () => {
+    const { room, a } = await startedRoom()
+    const tab = await connected(client(a.token))
+    tab.emit('watch', room.id)
+    await until(async () => !(await away(a)))
+
+    tab.emit('watch', 'lobby')
+    await until(() => away(a))
+
+    tab.emit('watch', room.id)
+    await until(async () => !(await away(a)))
+  })
+
+  test('a tab on the lobby does not keep the seat when the room tab closes', async () => {
+    const { room, a } = await startedRoom()
+    const lobbyTab = await connected(client(a.token))
+    const roomTab = await connected(client(a.token))
+    lobbyTab.emit('watch', 'lobby')
+    roomTab.emit('watch', room.id)
+    await until(async () => !(await away(a)))
+
+    roomTab.disconnect()
+    await until(() => away(a))
+  })
+
+  test('reconnecting onto another page does not restore the board', async () => {
+    const { room, a } = await startedRoom()
+    const before = await connected(client(a.token))
+    before.emit('watch', room.id)
+    await until(async () => !(await away(a)))
+    before.disconnect()
+    await until(() => away(a))
+
+    const after = await connected(client(a.token))
+    after.emit('watch', 'lobby')
+    await tick(200)
+    expect(await away(a)).toBe(true)
   })
 
   test('the opponent sees the disconnect on the room channel', async () => {
     const { room, a, b } = await startedRoom()
     const me = await connected(client(a.token))
     const opponent = await connected(client(b.token))
+    me.emit('watch', room.id)
     opponent.emit('watch', room.id)
-    await until(async () => (await board(a)).disconnectedAt === null)
+    await until(async () => !(await away(a)))
 
     const update = next(opponent, 'updateRoom')
     me.disconnect()
@@ -229,5 +273,21 @@ describe('cleanupRooms', () => {
     expect(await prisma.room.findUnique({ where: { id: empty.id } })).toBeNull()
     expect(await prisma.message.count()).toBe(0)
     expect(await prisma.room.findUnique({ where: { id: busy.id } })).not.toBeNull()
+  })
+
+  test('deletes idle rooms even with players in them and tells their watchers', async () => {
+    const { room: idle } = await startedRoom()
+    const { room: active } = await startedRoom()
+    await prisma.room.update({ where: { id: idle.id }, data: { lastActivityAt: new Date(Date.now() - 2 * 60000) } })
+
+    const sent: [string | string[], string, unknown][] = []
+    const io = { to: (ch: string | string[]) => ({ emit: (e: string, p?: unknown) => sent.push([ch, e, p]) }) }
+    await cleanupRooms(io)
+
+    expect(await prisma.room.findUnique({ where: { id: idle.id } })).toBeNull()
+    expect(await prisma.board.count({ where: { roomId: idle.id } })).toBe(0)
+    expect(await prisma.room.findUnique({ where: { id: active.id } })).not.toBeNull()
+    expect(sent).toContainEqual(['room:' + idle.id, 'updateRoom', null])
+    expect(sent.some(([, e]) => e === 'updateRooms')).toBe(true)
   })
 })

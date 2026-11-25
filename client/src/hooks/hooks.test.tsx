@@ -56,14 +56,13 @@ describe('useRoom', () => {
         const { result } = renderHook(() => useRoom('3'))
         await waitFor(() => expect(result.current[0]).toBeDefined())
         act(() => socket.trigger('updateRoom', null))
-        expect(result.current[0]).toBeUndefined()
+        expect(result.current[0]).toBeNull()
     })
 
-    test('stays undefined for an unknown room', async () => {
+    test('is null for an unknown room', async () => {
         fetchMock().mockReturnValue(jsonResponse({}, 404))
         const { result } = renderHook(() => useRoom('99'))
-        await waitFor(() => expect(fetchMock()).toHaveBeenCalled())
-        expect(result.current[0]).toBeUndefined()
+        await waitFor(() => expect(result.current[0]).toBeNull())
     })
 })
 

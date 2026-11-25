@@ -88,6 +88,12 @@ export async function resetGames(roomIds: number[]): Promise<void> {
   ])
 }
 
+// Marks a game action in the room, which postpones its idle cleanup.
+// updateMany: the room may have been deleted meanwhile, which is not an error.
+export async function touchRoom(roomId: number): Promise<void> {
+  await prisma.room.updateMany({ where: { id: roomId }, data: { lastActivityAt: new Date() } })
+}
+
 function prismaCode(e: unknown): unknown {
   return typeof e === 'object' && e !== null && 'code' in e ? e.code : undefined
 }
