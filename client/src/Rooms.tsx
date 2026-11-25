@@ -8,18 +8,13 @@ function Rooms() {
     const navigate = useNavigate()
     const { player } = usePlayer()
 
-    const [rooms, setRooms] = useRooms();
+    const [rooms] = useRooms();
 
     async function createRoom() {
+        // The new room arrives through the lobby's "updateRooms" event.
         await apiFetch("/rooms", {
             method: "post"
         })
-
-        //TODO: borrar cuando hayan websockets
-
-        const rooms = await apiFetch("/rooms").then(r => r.json())
-
-        setRooms(rooms)
     }
 
     async function joinRoom(id: number) {

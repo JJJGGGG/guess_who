@@ -1,35 +1,41 @@
 import { useEffect, useState } from "react";
 import { Board } from "../types";
-import { socket } from "../socket";
 import { apiFetch } from "../api";
-import usePlayer from "./usePlayer";
+import { socket } from "../socket";
 
-function useBoard(roomId?: string): [Board | undefined, (row: number, col: number) => void] {
-    const { player } = usePlayer()
-    const playerId = player?.id
+// The logged-in player's own board. Only its owner gets it (on the
+// "player:<id>" channel), so the opponent's character never reaches this tab.
+function useBoard(roomId: string | undefined): [Board | undefined, (row: number, col: number) => void] {
     const [board, setBoard] = useState<Board>()
-    useEffect(() => {
-        if(playerId && roomId) {
-
-            apiFetch("/rooms")
-                .then((res) => res.json())
-                .then((res) => res.find((r: any) => r.id == roomId))
-                .then((res) => res?.boards.find((r: any) => r.playerId == playerId))
-                .then((res) => setBoard(res))
-        }
-    }, [playerId, roomId])
 
     useEffect(() => {
-        function updateRooms(rooms: any) {
-            const board = rooms.find((r: any) => r.id == roomId)?.boards.find((r: any) => r.playerId == playerId)
-            setBoard(board)
+        setBoard(undefined)
+        if(!roomId) {
+            return
         }
-        socket.on("updateRooms", updateRooms)
-
+        let cancelled = false
+        // Also on every reconnect: "board" events sent while offline are lost.
+        function fetchBoard() {
+            apiFetch(`/rooms/${encodeURIComponent(roomId!)}/board`)
+                .then((res) => res.ok ? res.json() : undefined)
+                .then((b) => { if(!cancelled) setBoard(b) })
+                .catch(console.error)
+        }
+        function onBoard(b: Board) {
+            if(b.roomId.toString() == roomId) {
+                setBoard(b)
+            }
+        }
+        fetchBoard()
+        socket.on("connect", fetchBoard)
+        socket.on("board", onBoard)
         return () => {
-            socket.off("updateRooms", updateRooms)
+            cancelled = true
+            socket.off("connect", fetchBoard)
+            socket.off("board", onBoard)
         }
-    }, [playerId, roomId])
+    }, [roomId])
+
     function switchTile(row: number, col: number) {
          apiFetch("/rooms/tiles/flip", {
             method: "POST",

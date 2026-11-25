@@ -2,21 +2,21 @@
 var express = require('express');
 var router = express.Router();
 var {PrismaClient} = require('@prisma/client')
-const { updateRooms, updateChat } = require('../utils')
+const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard } = require('../utils')
 const { requireAuth } = require('../auth')
 
 const prisma = new PrismaClient()
 
-/* GET home page. */
+// Lobby list: who is in each room, nothing else.
 router.get('/', async function(req, res, next) {
-  return res.json(await prisma.room.findMany({include: { boards: { include: { tiles: true } } }}))
+  return res.json(await prisma.room.findMany({ select: lobbySelect }))
 });
 
 router.post('/', requireAuth, async function(req, res, next) {
   const room = await prisma.room.create({
     data: {},
   })
-  await updateRooms(req.app.get("socketio"))
+  await updateLobby(req.app.get("socketio"))
   return res.json(room)
 });
 
@@ -48,7 +48,9 @@ router.post('/join', requireAuth, async function(req, res, next) {
       playerName: req.player.name
     },
   })
-  await updateRooms(req.app.get("socketio"))
+  const io = req.app.get("socketio")
+  await updateLobby(io)
+  await updateRoom(io, roomId)
   return res.json(board)
 })
 
@@ -87,7 +89,9 @@ router.post('/leave', requireAuth, async function(req, res, next) {
       },
     },
   })
-  await updateRooms(req.app.get("socketio"))
+  const io = req.app.get("socketio")
+  await updateLobby(io)
+  await updateRoom(io, roomId)
   return res.json(bb)
 })
 
@@ -143,7 +147,7 @@ router.post('/start', requireAuth, async function(req, res, next) {
 
     io.to(room.boards.map(b => "player:" + b.playerId)).emit("startGame", roomId)
 
-    updateRooms(io)
+    updateRoom(io, roomId).catch(console.error)
 
     return res.json({started: true})
   }
@@ -186,7 +190,7 @@ router.post("/tiles/flip", requireAuth, async function(req, res, next) {
     },
   })
 
-  updateRooms(req.app.get("socketio"))
+  updateRoom(req.app.get("socketio"), roomId).catch(console.error)
 
   return res.json(tileUpdate)
 })
@@ -235,7 +239,7 @@ router.post("/selectcharacter", requireAuth, async function(req, res, next) {
     }
   })
 
-  updateRooms(req.app.get("socketio"))
+  updateRoom(req.app.get("socketio"), roomId).catch(console.error)
 
   return res.json(board)
 })
@@ -259,6 +263,27 @@ router.get("/message", async function(req, res, next) {
   }
 
   return res.json(room.messages)
+})
+
+// One room's public state (no chosen characters), for players and spectators.
+router.get('/:id(\\d+)', async function(req, res, next) {
+  const room = await getPublicRoom(parseInt(req.params.id))
+  if(!room) {
+    return res.sendStatus(404)
+  }
+  return res.json(room)
+})
+
+// The logged-in player's own board in that room, chosen character included.
+router.get('/:id(\\d+)/board', requireAuth, async function(req, res, next) {
+  const board = await prisma.board.findFirst({
+    where: { roomId: parseInt(req.params.id), playerId: req.player.id },
+    include: { tiles: true }
+  })
+  if(!board) {
+    return res.sendStatus(404)
+  }
+  return res.json(privateBoard(board))
 })
 
 router.post("/message", requireAuth, async function(req, res, next) {
@@ -294,7 +319,7 @@ router.post("/message", requireAuth, async function(req, res, next) {
      }
   })
 
-  updateChat(req.app.get("socketio"), {rid: roomId, newMessage: message, playerId: playerId, playerName: playerName})
+  updateChat(req.app.get("socketio"), roomId, {rid: roomId, newMessage: message, playerId: playerId, playerName: playerName})
 
   return res.json(room.messages)
 })

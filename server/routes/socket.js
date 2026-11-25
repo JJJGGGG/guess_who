@@ -1,7 +1,7 @@
 const { Server } = require("socket.io");
 const http = require('http');
 var {PrismaClient} = require('@prisma/client')
-const { updateRooms, GRACE_SECONDS } = require( '../utils');
+const { updateLobby, updateRoom, roomChannel, LOBBY, GRACE_SECONDS } = require( '../utils');
 const { socketAuth } = require('../auth')
 const prisma = new PrismaClient()
 
@@ -39,7 +39,18 @@ async function sweep(io) {
         where: { roomId: { in: roomIds } },
         data: { chosenRow: null, chosenCol: null }
     })
-    updateRooms(io)
+    await updateLobby(io)
+    await Promise.all(roomIds.map(id => updateRoom(io, id)))
+}
+
+// Rooms the player has a board in, so a (dis)connect is only sent to them.
+async function updatePlayerRooms(io, playerId) {
+    const boards = await prisma.board.findMany({
+        where: { playerId },
+        select: { roomId: true }
+    })
+    const roomIds = [...new Set(boards.map(b => b.roomId))]
+    await Promise.all(roomIds.map(id => updateRoom(io, id)))
 }
 
 function addWebsockets(server, app) {
@@ -72,6 +83,25 @@ function addWebsockets(server, app) {
         const playerId = socket.data.player.id;
         socket.join("player:" + playerId)
 
+        // The page this tab shows: "lobby" or a roomId. Replaces the previous
+        // one. Rooms are public (anyone can spectate), so no membership check.
+        socket.on('watch', (target) => {
+            let channel
+            if(target === LOBBY) {
+                channel = LOBBY
+            } else if(Number.isInteger(target) && target > 0) {
+                channel = roomChannel(target)
+            } else {
+                return
+            }
+            for(const r of socket.rooms) {
+                if(r !== channel && (r === LOBBY || r.startsWith("room:"))) {
+                    socket.leave(r)
+                }
+            }
+            socket.join(channel)
+        })
+
         socket.on('disconnect', async () => {
             const others = (await io.in("player:" + playerId).fetchSockets())
                 .filter(s => s.id !== socket.id)
@@ -83,7 +113,7 @@ function addWebsockets(server, app) {
                 data: { disconnectedAt: new Date() }
             })
             if(marked.count) {
-                updateRooms(io);
+                updatePlayerRooms(io, playerId).catch(console.error)
             }
         })
 
@@ -92,7 +122,7 @@ function addWebsockets(server, app) {
             data: { disconnectedAt: null }
         })
         if(restored.count) {
-            updateRooms(io);
+            updatePlayerRooms(io, playerId).catch(console.error)
         }
     });
 

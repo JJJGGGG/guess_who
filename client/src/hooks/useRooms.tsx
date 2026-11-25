@@ -1,9 +1,12 @@
 import {useState, useEffect} from "react"
-import { Room } from "../types"
+import { RoomSummary } from "../types"
 import { socket } from "../socket"
+import useWatch from "./useWatch"
 
-function useRooms(): [Room[], (r: Room[]) => void] {
-    const [rooms, setRooms] = useState<Room[]>([])
+function useRooms(): [RoomSummary[], (r: RoomSummary[]) => void] {
+    const [rooms, setRooms] = useState<RoomSummary[]>([])
+
+    useWatch("lobby")
 
     useEffect(() => {
         fetch("/api/rooms")
@@ -12,9 +15,8 @@ function useRooms(): [Room[], (r: Room[]) => void] {
     }, [])
 
     useEffect(() => {
-        function updateRooms(rooms: any) {
+        function updateRooms(rooms: RoomSummary[]) {
             setRooms(rooms)
-
         }
         socket.on("updateRooms", updateRooms)
 

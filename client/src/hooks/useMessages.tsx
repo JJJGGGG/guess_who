@@ -46,10 +46,6 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
         setMessages(msgs.map(toMessage))
     }
 
-    function addMessage(msg: StoredMessage) {
-        setMessages([...messages, toMessage(msg)])
-
-    }
 
     useEffect(() => {
         fetchMessages();
@@ -58,7 +54,7 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
     useEffect(() => {
         function updateChat({rid, newMessage, playerId, playerName}: {rid: string, newMessage: string, playerId: string, playerName: string}) {
             if (rid == roomId) {
-                addMessage({playerId, playerName, message: newMessage})
+                setMessages((prev) => [...prev, toMessage({playerId, playerName, message: newMessage})])
             }
         }
         socket.on("updateChat", updateChat)
@@ -66,7 +62,7 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
         return () => {
             socket.off("updateChat", updateChat)
         }
-    }, [roomId, addMessage])
+    }, [roomId])
 
     return [messages, postMessage]
 }

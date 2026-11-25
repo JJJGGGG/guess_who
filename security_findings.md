@@ -99,14 +99,16 @@ Commit b59e916 (d94c392 before the history rewrite) went back to `http.createSer
 
 > **Fixed (2026-11-25):** frontend and backend are now one app on one origin. In production, TLS is terminated by the platform (Render now, an AWS load balancer later), and Node stays on HTTP behind it with `trust proxy` set. For LAN testing, `server/index.js` serves HTTPS itself when `TLS_KEY` and `TLS_CERT` point to mkcert files outside the repo (options 2 and 3). The old `http.createServer({key, cert})` bug is gone. Helmet sends HSTS and, in production, a CSP with `upgrade-insecure-requests`.
 
-**13. Every websocket event goes to every client.**
+**13. Every websocket event goes to every client.** ✅ Done
 `updateRooms`, `updateChat` and `startGame` all use `io.emit`, so every client gets every room's chat and every board.
 *Files:* `server/utils.js:7, 11`, `socket.js:21-39`, `rooms.js:132, 229`
 1. Use socket.io rooms: the client sends `join` with the roomId, the server calls `socket.join("room:" + id)`, and events go out with `io.to("room:" + id).emit(...)`.
 2. Use one socket.io namespace per room. This needs more code, and namespaces are meant to be fixed rather than created per room.
 3. Keep broadcasting, but only a short room list (ids and player counts), and fetch the details over HTTP with access checks.
 
-**14. Every client gets the opponent's secret character and full board.**
+> **Fixed (2026-11-25), option 1:** each socket sends `watch` with `"lobby"` or a roomId, and re-sends it on every reconnect. The server keeps the socket in exactly one `lobby` / `room:<id>` channel. The lobby gets `updateRooms` with a summary only (ids, players, no tiles or chosen characters), which also covers `GET /api/rooms`. A room channel gets `updateRoom` (that one room) and `updateChat`. Room pages load from the new `GET /api/rooms/:id`. `startGame` stays on `player:<id>`. The room payload still included chosen characters for spectators; fixed in #14.
+
+**14. Every client gets the opponent's secret character and full board.** ✅ Done
 `GET /api/rooms` and `updateRooms` include `chosenRow`/`chosenCol` for every board. The Spectate screen shows them openly, so a player can spectate their own game to cheat.
 *Files:* `rooms.js:11`, `utils.js:4-8`, `client/src/Spectate.tsx:198-200`
 1. Remove `chosenRow`/`chosenCol` (and the tiles) from public responses, and add a `GET /api/rooms/:id/board` that returns only the logged-in player's board:
@@ -115,6 +117,8 @@ Commit b59e916 (d94c392 before the history rewrite) went back to `http.createSer
    ```
 2. Send each player their own board on their socket (`io.to(board.socketId).emit("board", board)`), using the server-side socket mapping from #16.
 3. Hide chosen characters from spectators until the game ends, and stop players from spectating their own room.
+
+> **Fixed (2026-11-25), options 1 + 2 (+ part of 3):** the room channel and `GET /api/rooms/:id` now send a public view only (`publicRoom` in `server/utils.js`): players, `disconnectedAt`, a `ready` flag, and tiles as `{row, col, flipped}`. `chosenRow`/`chosenCol` are never in it. Each player gets their own full board from the new `GET /api/rooms/:id/board` (auth required, own board only), and `updateRoom` pushes a `board` event to `player:<id>` for every board in the room. #16's socketId is gone, so this channel is server-side. Identity is per tab, so anything a spectator sees, a player can see too. Spectators therefore see flipped tiles but never chosen characters. There is no end-of-game state yet; revealing characters at the end would need one. Spectate redirects a player in that room to their game page, but that's only a UX guard.
 
 **15. The server doesn't validate input.**
 Nothing checks the type or length of playerId, roomId, message, row, col or socketId. Chat messages have no length limit, duplicate names are allowed, and the same player can join twice.

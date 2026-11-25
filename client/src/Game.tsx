@@ -12,8 +12,8 @@ function Game() {
     const navigate = useNavigate()
     const { player } = usePlayer()
 
-    const [board, switchTile] = useTiles(roomId)
     const [room] = useRoom(roomId)
+    const [board, switchTile] = useTiles(roomId)
 
     // Name of the opponent once seen, so we can tell when their grace period
     // expired and their board was removed.
