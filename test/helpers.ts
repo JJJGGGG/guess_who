@@ -1,31 +1,45 @@
-const { PrismaClient } = require('@prisma/client')
-const { sign } = require('../server/auth')
+import { PrismaClient } from '@prisma/client'
+import type { Room as DbRoom } from '@prisma/client'
+import { sign } from '../server/auth.ts'
+import type { Player, ServerToClientEvents } from '../shared/types.ts'
+import type { Broadcaster } from '../server/types.ts'
 
-const prisma = new PrismaClient()
+export const prisma = new PrismaClient()
 
-async function resetDb() {
+export async function resetDb(): Promise<void> {
   await prisma.message.deleteMany()
   await prisma.tile.deleteMany()
   await prisma.board.deleteMany()
   await prisma.room.deleteMany()
 }
 
+export type Session = { player: Player, token: string, auth: string }
+
 let nextId = 0
 // A signed-in player: { player, token, auth } where auth is the header value.
-function session(name = 'player') {
+export function session(name = 'player'): Session {
   const player = { id: `test-${process.pid}-${++nextId}`, name }
   const token = sign(player)
   return { player, token, auth: 'Bearer ' + token }
 }
 
+// Payloads are loosely typed so tests can poke at them without casts.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Emitted = { to: string[], event: keyof ServerToClientEvents, payload: any }
+
+export type FakeIo = Broadcaster & {
+  emitted: Emitted[],
+  sentTo(channel: string, event?: keyof ServerToClientEvents): Emitted[]
+}
+
 // Records every io.to(channels).emit(event, payload) call as
 // { to: [...channels], event, payload }.
-function fakeIo() {
-  const emitted = []
+export function fakeIo(): FakeIo {
+  const emitted: Emitted[] = []
   return {
     emitted,
     to(channels) {
-      const to = [].concat(channels)
+      const to = ([] as string[]).concat(channels)
       return { emit: (event, payload) => emitted.push({ to, event, payload }) }
     },
     sentTo(channel, event) {
@@ -34,7 +48,7 @@ function fakeIo() {
   }
 }
 
-async function createRoom(players = [], { started = false } = {}) {
+export async function createRoom(players: Session[] = [], { started = false } = {}): Promise<DbRoom> {
   const room = await prisma.room.create({ data: { started } })
   for (const [slot, s] of players.entries()) {
     await prisma.board.create({
@@ -45,7 +59,7 @@ async function createRoom(players = [], { started = false } = {}) {
 }
 
 // Two players in a started room, each with a full 6x6 board.
-async function startedRoom() {
+export async function startedRoom(): Promise<{ room: DbRoom, a: Session, b: Session }> {
   const a = session('alice')
   const b = session('bob')
   const room = await createRoom([a, b], { started: true })
@@ -59,5 +73,3 @@ async function startedRoom() {
   }
   return { room, a, b }
 }
-
-module.exports = { prisma, resetDb, session, fakeIo, createRoom, startedRoom }

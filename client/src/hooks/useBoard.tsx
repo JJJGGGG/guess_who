@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Board } from "../types";
+import type { Board } from "../../../shared/types";
 import { apiFetch } from "../api";
 import { socket } from "../socket";
 

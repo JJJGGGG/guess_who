@@ -1,11 +1,13 @@
-const { Server } = require("socket.io");
-const http = require('http');
-var {PrismaClient} = require('@prisma/client')
-const { updateLobby, updateRoom, resetGames, roomChannel, LOBBY, GRACE_SECONDS } = require( '../utils');
-const { socketAuth } = require('../auth')
-const prisma = new PrismaClient()
+import 'dotenv/config'
+import { Server } from "socket.io";
+import type http from 'http';
+import type { Express } from 'express';
+import { PrismaClient } from '@prisma/client'
+import { updateLobby, updateRoom, resetGames, roomChannel, LOBBY, GRACE_SECONDS } from '../utils.ts';
+import { socketAuth } from '../auth.ts'
+import type { Broadcaster, GameServer } from '../types.ts'
 
-require('dotenv').config()
+const prisma = new PrismaClient()
 
 const SWEEP_INTERVAL_MS = 5000
 const CLEANUP_INTERVAL_MS = 60 * 1000
@@ -17,7 +19,7 @@ const EMPTY_ROOM_TTL_MINUTES = Number(process.env.EMPTY_ROOM_TTL_MINUTES || 10)
 // then resets the opponent's board in those rooms so a new game can start.
 // The where clause is re-checked on delete, so a player who reconnected in
 // the meantime (disconnectedAt cleared) keeps their board.
-async function sweep(io) {
+export async function sweep(io: Broadcaster): Promise<void> {
     const where = {
         disconnectedAt: {
             lt: new Date(Date.now() - GRACE_SECONDS * 1000)
@@ -43,7 +45,7 @@ async function sweep(io) {
 
 // Deletes rooms nobody is in (messages go with them via onDelete: Cascade).
 // Abandoned rooms end up here once sweep removes their disconnected players.
-async function cleanupRooms(io) {
+export async function cleanupRooms(io: Broadcaster): Promise<void> {
     const deleted = await prisma.room.deleteMany({
         where: {
             boards: { none: {} },
@@ -56,7 +58,7 @@ async function cleanupRooms(io) {
 }
 
 // Rooms the player has a board in, so a (dis)connect is only sent to them.
-async function updatePlayerRooms(io, playerId) {
+async function updatePlayerRooms(io: Broadcaster, playerId: string): Promise<void> {
     const boards = await prisma.board.findMany({
         where: { playerId },
         select: { roomId: true }
@@ -65,10 +67,18 @@ async function updatePlayerRooms(io, playerId) {
     await Promise.all(roomIds.map(id => updateRoom(io, id)))
 }
 
-function addWebsockets(server, app) {
+export type Websockets = {
+    io: GameServer,
+    // Resolves once the startup grace period is applied.
+    ready: Promise<unknown>,
+    // Clears the background jobs (used by tests to shut down cleanly).
+    stop: () => void
+}
+
+export default function addWebsockets(server: http.Server, app: Express): Websockets {
     // No `cors` option: the client is served from the same origin. Auth is a
     // token in the handshake, so a cross-site connection gets nothing.
-    const io = new Server(server, {
+    const io: GameServer = new Server(server, {
         // A silently dropped connection (lost network, no TCP close) is only
         // noticed by the heartbeat: worst case pingInterval + pingTimeout.
         // The defaults (25s + 20s) left the opponent waiting ~45s before the
@@ -100,11 +110,12 @@ function addWebsockets(server, app) {
 
         // The page this tab shows: "lobby" or a roomId. Replaces the previous
         // one. Rooms are public (anyone can spectate), so no membership check.
-        socket.on('watch', (target) => {
-            let channel
+        // The payload comes from the client, so it is checked, not trusted.
+        socket.on('watch', (target: unknown) => {
+            let channel: string
             if(target === LOBBY) {
                 channel = LOBBY
-            } else if(Number.isInteger(target) && target > 0) {
+            } else if(typeof target === 'number' && Number.isInteger(target) && target > 0) {
                 channel = roomChannel(target)
             } else {
                 return
@@ -149,11 +160,5 @@ function addWebsockets(server, app) {
         }
     });
 
-    // `ready` resolves once the startup grace period is applied; `stop` clears
-    // the background jobs (used by tests to shut down cleanly).
     return { io, ready, stop: () => timers.forEach(clearInterval) }
 }
-
-module.exports = addWebsockets;
-module.exports.sweep = sweep;
-module.exports.cleanupRooms = cleanupRooms;

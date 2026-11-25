@@ -1,6 +1,9 @@
-const { prisma, resetDb, session, createRoom, startedRoom } = require('../test/helpers')
-const { getPublicRoom, privateBoard, resetGames, recentMessages, validate } = require('./utils')
-const { object, number, string } = require('yup')
+import { prisma, resetDb, session, createRoom, startedRoom } from '../test/helpers.ts'
+import { getPublicRoom, privateBoard, resetGames, recentMessages, validate } from './utils.ts'
+import { object, number, string } from 'yup'
+import type { NextFunction, Request, Response } from 'express'
+
+type Board = Parameters<typeof privateBoard>[0]
 
 beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
@@ -14,13 +17,13 @@ describe('getPublicRoom', () => {
     const { room, a } = await startedRoom()
     await prisma.board.updateMany({ where: { playerId: a.player.id }, data: { chosenRow: 2, chosenCol: 3 } })
 
-    const pub = await getPublicRoom(room.id)
+    const pub = (await getPublicRoom(room.id))!
     const json = JSON.stringify(pub)
     expect(json).not.toMatch(/chosen/)
     expect(json).not.toMatch(/photoUrl|"name"/)
 
-    const boardA = pub.boards.find(b => b.playerId === a.player.id)
-    const boardB = pub.boards.find(b => b.playerId !== a.player.id)
+    const boardA = pub.boards.find(b => b.playerId === a.player.id)!
+    const boardB = pub.boards.find(b => b.playerId !== a.player.id)!
     expect(boardA.ready).toBe(true)
     expect(boardB.ready).toBe(false)
     expect(boardA.tiles).toHaveLength(36)
@@ -36,7 +39,8 @@ describe('privateBoard', () => {
       id: 1, roomId: 2, playerId: 'p', playerName: 'P', chosenRow: 1, chosenCol: 4, slot: 0, disconnectedAt: null,
       tiles: [{ row: 1, col: 0 }, { row: 0, col: 5 }, { row: 0, col: 1 }],
     }
-    const out = privateBoard(board)
+    // Partial tiles on purpose: privateBoard only sorts, it doesn't read them.
+    const out = privateBoard(board as unknown as Board)
     expect(out).toMatchObject({ chosenRow: 1, chosenCol: 4 })
     expect(out.tiles).toEqual([{ row: 0, col: 1 }, { row: 0, col: 5 }, { row: 1, col: 0 }])
     expect(out).not.toHaveProperty('slot')
@@ -44,7 +48,7 @@ describe('privateBoard', () => {
   })
 
   test('handles a board without tiles', () => {
-    expect(privateBoard({ id: 1 }).tiles).toEqual([])
+    expect(privateBoard({ id: 1 } as Board).tiles).toEqual([])
   })
 })
 
@@ -86,8 +90,8 @@ describe('recentMessages', () => {
 describe('validate', () => {
   const schema = object({ id: number().integer().positive().required(), name: string().trim() })
 
-  async function run(source, input) {
-    const req = {}
+  async function run(source: 'body' | 'query', input: unknown) {
+    const req = {} as Request
     // Express 5 defines req.query as a getter; mimic that.
     Object.defineProperty(req, source, { get: () => input, configurable: true })
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() }
@@ -95,7 +99,7 @@ describe('validate', () => {
     await new Promise((resolve) => {
       res.json.mockImplementation(resolve)
       next.mockImplementation(resolve)
-      validate(schema, source)(req, res, next)
+      validate(schema, source)(req, res as unknown as Response, next as NextFunction)
     })
     return { req, res, next }
   }

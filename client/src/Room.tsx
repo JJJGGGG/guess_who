@@ -24,7 +24,7 @@ function Room() {
         return () => {
             socket.off("startGame", goToGame)
         }
-    }, [])
+    }, [roomId, navigate])
 
     async function leaveRoom() {
         await apiFetch("/rooms/leave", {

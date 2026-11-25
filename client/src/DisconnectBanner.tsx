@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Room } from "./types";
+import type { Room } from "../../shared/types";
 import usePlayer from "./hooks/usePlayer";
 
 // Shows a countdown for every other player in the room who is in their

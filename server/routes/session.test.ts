@@ -1,7 +1,7 @@
-const request = require('supertest')
-const { app } = require('../../test/app')
-const { verify } = require('../auth')
-const { session } = require('../../test/helpers')
+import request from 'supertest'
+import { app } from '../../test/app.ts'
+import { verify } from '../auth.ts'
+import { session } from '../../test/helpers.ts'
 
 describe('POST /api/session', () => {
   test('issues a token for a trimmed name', async () => {

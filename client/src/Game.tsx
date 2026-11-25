@@ -37,7 +37,7 @@ function Game() {
             const timeout = setTimeout(() => navigate(`/rooms/${roomId}`), 3000)
             return () => clearTimeout(timeout)
         }
-    }, [room])
+    }, [room, player?.id, navigate, roomId])
 
     async function selectCharacter(row: number, col: number) {
         await apiFetch("/rooms/selectcharacter", {

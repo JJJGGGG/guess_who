@@ -6,7 +6,7 @@ module.exports = {
     'plugin:@typescript-eslint/recommended',
     'plugin:react-hooks/recommended',
   ],
-  ignorePatterns: ['dist', '.eslintrc.cjs', 'server', 'prisma'],
+  ignorePatterns: ['dist', '.eslintrc.cjs', 'prisma'],
   parser: '@typescript-eslint/parser',
   plugins: ['react-refresh'],
   rules: {
@@ -16,6 +16,22 @@ module.exports = {
     ],
   },
   overrides: [
+    {
+      // The Node server (no React) and its Jest helpers.
+      files: ['server/**', 'test/**'],
+      env: { node: true, browser: false },
+      rules: {
+        'react-refresh/only-export-components': 'off',
+      },
+    },
+    {
+      // Server tests reload modules with require() inside jest.isolateModules.
+      files: ['server/**/*.test.ts'],
+      env: { jest: true },
+      rules: {
+        '@typescript-eslint/no-var-requires': 'off',
+      },
+    },
     {
       // Tests load modules in isolation with require() and fake loosely typed
       // socket payloads.

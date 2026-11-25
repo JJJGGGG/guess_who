@@ -1,13 +1,22 @@
-const http = require('http')
-const request = require('supertest')
-const { io: connect } = require('socket.io-client')
-const { app } = require('../app')
-const addWebsockets = require('./socket')
-const { sweep, cleanupRooms } = require('./socket')
-const { prisma, resetDb, session, createRoom, startedRoom } = require('../../test/helpers')
+import http from 'http'
+import request from 'supertest'
+import { io as connect } from 'socket.io-client'
+import { app } from '../app.ts'
+import addWebsockets from './socket.ts'
+import { sweep, cleanupRooms } from './socket.ts'
+import { prisma, resetDb, session, createRoom, startedRoom } from '../../test/helpers.ts'
 
-let server, ws, url
-const clients = []
+import type { AddressInfo } from 'net'
+import type { Socket as ClientSocket } from 'socket.io-client'
+import type { Websockets } from './socket.ts'
+import type { Session } from '../../test/helpers.ts'
+import type { ServerToClientEvents } from '../../shared/types.ts'
+
+// The test client is left untyped on purpose: some tests emit invalid payloads.
+type Payload<E extends keyof ServerToClientEvents> = Parameters<ServerToClientEvents[E]>[0]
+
+let server: http.Server, ws: Websockets, url: string
+const clients: ClientSocket[] = []
 
 beforeAll(async () => {
   server = http.createServer(app)
@@ -15,8 +24,8 @@ beforeAll(async () => {
   // sweep/cleanupRooms are called directly below; the timers would race them.
   ws.stop()
   await ws.ready
-  await new Promise(r => server.listen(0, '127.0.0.1', r))
-  url = `http://127.0.0.1:${server.address().port}`
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
+  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
 
 afterAll(async () => {
@@ -29,37 +38,38 @@ afterEach(() => {
   clients.splice(0).forEach(c => c.disconnect())
 })
 
-function client(token) {
+function client(token: string | undefined): ClientSocket {
   const c = connect(url, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true })
   clients.push(c)
   return c
 }
 
-function connected(c) {
+function connected(c: ClientSocket): Promise<ClientSocket> {
   return new Promise((resolve, reject) => {
     c.once('connect', () => resolve(c))
     c.once('connect_error', reject)
   })
 }
 
-function next(c, event, timeout = 2000) {
+function next<E extends keyof ServerToClientEvents>(c: ClientSocket, event: E, timeout = 2000): Promise<Payload<E>> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('no ' + event)), timeout)
-    c.once(event, (payload) => { clearTimeout(t); resolve(payload) })
+    // `as string`: the untyped client's listener types don't take a generic event name.
+    c.once(event as string, (payload: Payload<E>) => { clearTimeout(t); resolve(payload) })
   })
 }
 
 // Collects every `event` the client receives.
-function record(c, event) {
-  const got = []
-  c.on(event, p => got.push(p))
+function record<E extends keyof ServerToClientEvents>(c: ClientSocket, event: E): Payload<E>[] {
+  const got: Payload<E>[] = []
+  c.on(event as string, (p: Payload<E>) => got.push(p))
   return got
 }
 
 const tick = (ms = 100) => new Promise(r => setTimeout(r, ms))
 
 // Polls until fn() is truthy (DB writes from socket handlers are async).
-async function until(fn, timeout = 2000) {
+async function until<T>(fn: () => T | Promise<T>, timeout = 2000): Promise<T> {
   const end = Date.now() + timeout
   while (Date.now() < end) {
     const v = await fn()
@@ -106,7 +116,7 @@ describe('watch', () => {
     await request(app).post('/api/rooms/join').set('Authorization', b.auth).send({ roomId: room1.id })
     await tick(200)
     expect(got).toHaveLength(1)
-    expect(got[0].id).toBe(room1.id)
+    expect(got[0]!.id).toBe(room1.id)
   })
 
   test.each([0, -1, 1.5, '1', 'room:1', null, { id: 1 }])('ignores invalid target %p', async (target) => {
@@ -146,7 +156,7 @@ describe('private board', () => {
 })
 
 describe('disconnect / reconnect', () => {
-  const board = (s) => prisma.board.findFirst({ where: { playerId: s.player.id } })
+  const board = async (s: Session) => (await prisma.board.findFirst({ where: { playerId: s.player.id } }))!
 
   test('marks the board only when the last tab closes, clears it on reconnect', async () => {
     const { a } = await startedRoom()
@@ -176,7 +186,7 @@ describe('disconnect / reconnect', () => {
     const update = next(opponent, 'updateRoom')
     me.disconnect()
     const payload = await update
-    expect(payload.boards.find(x => x.playerId === a.player.id).disconnectedAt).not.toBeNull()
+    expect(payload!.boards.find(x => x.playerId === a.player.id)!.disconnectedAt).not.toBeNull()
   })
 })
 
@@ -193,7 +203,7 @@ describe('sweep', () => {
     const boards = await prisma.board.findMany({ where: { roomId: room.id }, include: { tiles: true } })
     expect(boards).toHaveLength(1)
     expect(boards[0]).toMatchObject({ playerId: b.player.id, chosenRow: null, tiles: [] })
-    expect((await prisma.room.findUnique({ where: { id: room.id } })).started).toBe(false)
+    expect((await prisma.room.findUnique({ where: { id: room.id } }))!.started).toBe(false)
   })
 
   test('keeps players still inside the grace period', async () => {

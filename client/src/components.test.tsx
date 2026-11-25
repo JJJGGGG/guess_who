@@ -13,7 +13,7 @@ import Game from './Game'
 import Spectate from './Spectate'
 import DisconnectBanner from './DisconnectBanner'
 import ConnectionBanner from './ConnectionBanner'
-import type { Room as RoomT, Board } from './types'
+import type { Room as RoomT, Board } from '../../shared/types'
 
 jest.mock('./hooks/usePlayer', () => require('../test/mockPlayer'))
 

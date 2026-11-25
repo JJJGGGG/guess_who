@@ -1,6 +1,9 @@
-const request = require('supertest')
-const { app, io } = require('../../test/app')
-const { prisma, resetDb, session, createRoom, startedRoom } = require('../../test/helpers')
+import request from 'supertest'
+import type { Express } from 'express'
+import type { PublicBoard, RoomSummary, ChatMessage } from '../../shared/types.ts'
+import { app, io } from '../../test/app.ts'
+import { prisma, resetDb, session, createRoom, startedRoom } from '../../test/helpers.ts'
+import type { Session } from '../../test/helpers.ts'
 
 beforeEach(async () => {
   await resetDb()
@@ -8,12 +11,12 @@ beforeEach(async () => {
 })
 afterAll(() => prisma.$disconnect())
 
-const post = (path, s, body) => {
+const post = (path: string, s: Session | null, body?: object) => {
   const req = request(app).post('/api/rooms' + path)
   if (s) req.set('Authorization', s.auth)
   return req.send(body)
 }
-const boardsIn = (roomId) => prisma.board.findMany({ where: { roomId }, include: { tiles: true } })
+const boardsIn = (roomId: number) => prisma.board.findMany({ where: { roomId }, include: { tiles: true } })
 
 describe('GET /api/rooms', () => {
   test('lists rooms with players only, no game state', async () => {
@@ -23,7 +26,7 @@ describe('GET /api/rooms', () => {
     const res = await request(app).get('/api/rooms')
     expect(res.status).toBe(200)
     expect(res.body).toHaveLength(2)
-    const started = res.body.find(r => r.id === room.id)
+    const started = res.body.find((r: RoomSummary) => r.id === room.id)
     expect(Object.keys(started.boards[0]).sort()).toEqual(['id', 'playerId', 'playerName'])
   })
 })
@@ -38,7 +41,7 @@ describe('POST /api/rooms', () => {
     expect(res.status).toBe(200)
     expect(await prisma.room.findUnique({ where: { id: res.body.id } })).not.toBeNull()
     const [lobby] = io.sentTo('lobby', 'updateRooms')
-    expect(lobby.payload.map(r => r.id)).toContain(res.body.id)
+    expect(lobby.payload.map((r: RoomSummary) => r.id)).toContain(res.body.id)
   })
 
   test('503 once MAX_OPEN_ROOMS (5 in tests) is reached', async () => {
@@ -128,7 +131,7 @@ describe('POST /api/rooms/leave', () => {
     const boards = await boardsIn(room.id)
     expect(boards).toHaveLength(1)
     expect(boards[0]).toMatchObject({ playerId: b.player.id, chosenRow: null, chosenCol: null, tiles: [] })
-    expect((await prisma.room.findUnique({ where: { id: room.id } })).started).toBe(false)
+    expect((await prisma.room.findUnique({ where: { id: room.id } }))!.started).toBe(false)
   })
 })
 
@@ -259,7 +262,7 @@ describe('GET /api/rooms/:id and /:id/board', () => {
     const res = await request(app).get('/api/rooms/' + room.id)
     expect(res.status).toBe(200)
     expect(JSON.stringify(res.body)).not.toMatch(/chosen/)
-    expect(res.body.boards.find(b => b.playerId === a.player.id).ready).toBe(true)
+    expect(res.body.boards.find((b: PublicBoard) => b.playerId === a.player.id).ready).toBe(true)
   })
 
   test('own board: 401 anonymous, 404 for non-members, chosen character for the owner', async () => {
@@ -308,7 +311,7 @@ describe('messages', () => {
     await post('/message', a, { roomId: room.id, message: 'one' })
     await post('/message', a, { roomId: room.id, message: 'two' })
     const res = await request(app).get('/api/rooms/message?roomId=' + room.id)
-    expect(res.body.map(m => m.message)).toEqual(['one', 'two'])
+    expect(res.body.map((m: ChatMessage) => m.message)).toEqual(['one', 'two'])
     expect((await request(app).get('/api/rooms/message?roomId=999999')).status).toBe(404)
     expect((await request(app).get('/api/rooms/message')).status).toBe(400)
   })
@@ -320,7 +323,7 @@ describe('app-level behaviour', () => {
       .set('Content-Type', 'application/json').send('{"roomId":')
     expect(res.status).toBe(400)
     expect(res.body).toEqual({ error: expect.any(String) })
-    expect(res.text).not.toMatch(/at .*\.js/)
+    expect(res.text).not.toMatch(/at .*\.[jt]s/)
   })
 
   test('unknown API routes are a JSON 404', async () => {
@@ -339,8 +342,8 @@ describe('app-level behaviour', () => {
   test('room creation is rate limited per IP', async () => {
     const original = process.env.RATE_LIMIT_ROOMS_PER_MIN
     process.env.RATE_LIMIT_ROOMS_PER_MIN = '1'
-    let limited
-    jest.isolateModules(() => { limited = require('../app').app })
+    let limited!: Express
+    jest.isolateModules(() => { limited = require('../app.ts').app })
     process.env.RATE_LIMIT_ROOMS_PER_MIN = original
     limited.set('socketio', io)
 

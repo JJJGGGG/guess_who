@@ -1,3 +1,5 @@
+export {}
+
 // Runs before every server test file, before any app module is required.
 // dotenv never overrides variables that are already set, so these win over .env.
 process.env.NODE_ENV = 'test'

@@ -1,19 +1,22 @@
-const crypto = require('crypto')
-
-require('dotenv').config()
+import 'dotenv/config'
+import crypto from 'crypto'
+import type { NextFunction, Request, Response } from 'express'
+import type { Player } from '../shared/types.ts'
+import type { GameSocket } from './types.ts'
 
 const SECRET = process.env.SESSION_SECRET
 if (!SECRET || Buffer.byteLength(SECRET) < 32) {
   throw new Error('SESSION_SECRET must be set to at least 32 bytes')
 }
+const KEY: string = SECRET
 
 const TTL_MS = 24 * 60 * 60 * 1000
 
-function hmac(data) {
-  return crypto.createHmac('sha256', SECRET).update(data).digest('base64url')
+function hmac(data: string): string {
+  return crypto.createHmac('sha256', KEY).update(data).digest('base64url')
 }
 
-function sign(player) {
+export function sign(player: Player): string {
   const payload = Buffer.from(JSON.stringify({
     sub: player.id,
     name: player.name,
@@ -23,7 +26,7 @@ function sign(player) {
 }
 
 // Returns {id, name} for a valid, unexpired token, otherwise null.
-function verify(token) {
+export function verify(token: unknown): Player | null {
   if (typeof token !== 'string') return null
   const [payload, sig] = token.split('.')
   if (!payload || !sig) return null
@@ -43,17 +46,24 @@ function verify(token) {
   }
 }
 
-function requireAuth(req, res, next) {
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.get('Authorization') || ''
   const player = verify(header.startsWith('Bearer ') ? header.slice(7) : null)
   if (!player) {
-    return res.sendStatus(401)
+    res.sendStatus(401)
+    return
   }
   req.player = player
   next()
 }
 
-function socketAuth(socket, next) {
+// The player requireAuth attached. Throws (500) if a route forgot requireAuth.
+export function playerOf(req: Request): Player {
+  if (!req.player) throw new Error('route is missing requireAuth')
+  return req.player
+}
+
+export function socketAuth(socket: GameSocket, next: (err?: Error) => void): void {
   const player = verify(socket.handshake.auth && socket.handshake.auth.token)
   if (!player) {
     return next(new Error('unauthorized'))
@@ -61,5 +71,3 @@ function socketAuth(socket, next) {
   socket.data.player = player
   next()
 }
-
-module.exports = { sign, verify, requireAuth, socketAuth }

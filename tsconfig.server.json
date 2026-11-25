@@ -1,0 +1,23 @@
+{
+  // Type-checks the Express/socket.io server and its tests. Node runs the .ts
+  // files directly (type stripping), so this only checks and never emits.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node", "jest"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    // Only syntax Node can strip: no enums, namespaces with values, or
+    // constructor parameter properties.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["server", "test", "shared"]
+}

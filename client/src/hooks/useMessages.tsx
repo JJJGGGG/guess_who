@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { socket } from "../socket"
 import { apiFetch } from "../api"
+import type { ChatMessage, ChatUpdate } from "../../../shared/types"
 
 type Message = {
     playerId: string,
@@ -8,7 +9,7 @@ type Message = {
     message: string,
 }
 
-type StoredMessage = {playerId: string, playerName: string, message: string}
+type StoredMessage = Pick<ChatMessage, 'playerId' | 'playerName' | 'message'>
 
 function toMessage(msg: StoredMessage): Message {
     return {
@@ -32,7 +33,7 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
         if(!res.ok) {
             return false
         }
-        const msgs = await res.json()
+        const msgs: ChatMessage[] = await res.json()
 
         setMessages(msgs.map(toMessage))
         return true
@@ -44,14 +45,14 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
         let cancelled = false
         apiFetch("/rooms/message?" + new URLSearchParams({ roomId: roomId || "" }).toString())
             .then((res) => res.ok ? res.json() : [])
-            .then((msgs: StoredMessage[]) => { if (!cancelled) setMessages(msgs.map(toMessage)) })
+            .then((msgs: ChatMessage[]) => { if (!cancelled) setMessages(msgs.map(toMessage)) })
             .catch(console.error)
         return () => { cancelled = true }
     }, [roomId])
 
     useEffect(() => {
-        function updateChat({rid, newMessage, playerId, playerName}: {rid: string, newMessage: string, playerId: string, playerName: string}) {
-            if (rid == roomId) {
+        function updateChat({rid, newMessage, playerId, playerName}: ChatUpdate) {
+            if (String(rid) === roomId) {
                 setMessages((prev) => [...prev, toMessage({playerId, playerName, message: newMessage})])
             }
         }

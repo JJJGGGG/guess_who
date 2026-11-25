@@ -9,8 +9,9 @@ export default function useWatch(target: "lobby" | number | undefined) {
         if(target === undefined || Number.isNaN(target)) {
             return
         }
+        const watching = target
         function watch() {
-            socket.emit("watch", target)
+            socket.emit("watch", watching)
         }
         if(socket.connected) {
             watch()

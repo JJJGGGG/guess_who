@@ -1,5 +1,5 @@
 import {useState, useEffect} from "react"
-import { Room } from "../types"
+import type { Room } from "../../../shared/types"
 import { socket } from "../socket"
 import useWatch from "./useWatch"
 

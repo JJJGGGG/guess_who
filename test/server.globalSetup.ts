@@ -1,10 +1,10 @@
-const { execSync } = require('child_process')
-const path = require('path')
+import { execSync } from 'child_process'
+import type { Config } from '@jest/types'
 
 // Recreates prisma/test.db from the migrations once per `jest` run.
-module.exports = function() {
+export default function(_globalConfig: Config.GlobalConfig, projectConfig: Config.ProjectConfig): void {
   execSync('npx prisma migrate reset --force --skip-seed --skip-generate', {
-    cwd: path.join(__dirname, '..'),
+    cwd: projectConfig.rootDir,
     env: { ...process.env, DATABASE_URL: 'file:./test.db' },
     stdio: 'ignore',
   })

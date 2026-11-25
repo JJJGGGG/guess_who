@@ -5,11 +5,10 @@ module.exports = {
     {
       displayName: 'server',
       testEnvironment: 'node',
-      testMatch: ['<rootDir>/server/**/*.test.js'],
-      setupFiles: ['<rootDir>/test/server.env.js'],
-      globalSetup: '<rootDir>/test/server.globalSetup.js',
-      // Plain CommonJS, nothing to compile.
-      transform: {},
+      testMatch: ['<rootDir>/server/**/*.test.ts'],
+      setupFiles: ['<rootDir>/test/server.env.ts'],
+      globalSetup: '<rootDir>/test/server.globalSetup.ts',
+      // TypeScript ESM, compiled to CommonJS by babel-jest (babel.config.cjs).
     },
     {
       displayName: 'client',

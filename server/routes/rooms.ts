@@ -1,11 +1,13 @@
+import express from 'express';
+import type { Request, Response } from 'express';
+import { PrismaClient } from '@prisma/client'
+import type { Board as DbBoard, Prisma, Room as DbRoom, Tile as DbTile } from '@prisma/client'
+import { object, number } from 'yup'
+import { updateLobby, updateRoom, updateChat, lobbyRooms, getPublicRoom, privateBoard, resetGames, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, validated, trimmedString, ioOf, MAX_OPEN_ROOMS } from '../utils.ts'
+import { requireAuth, playerOf } from '../auth.ts'
+import type { ApiError, Board, ChatMessage, Room, RoomSummary, StartResult } from '../../shared/types.ts'
 
-var express = require('express');
-var router = express.Router();
-var {PrismaClient} = require('@prisma/client')
-const { object, number } = require('yup')
-const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard, resetGames, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, trimmedString, MAX_OPEN_ROOMS } = require('../utils')
-const { requireAuth } = require('../auth')
-
+const router = express.Router();
 const prisma = new PrismaClient()
 
 const BOARD_SIZE = 6
@@ -26,24 +28,26 @@ const messageQuerySchema = object({ roomId })
 const idParamSchema = object({ id: roomId })
 
 // Lobby list: who is in each room, nothing else.
-router.get('/', async function(req, res, next) {
-  return res.json(await prisma.room.findMany({ select: lobbySelect }))
+router.get('/', async function(req: Request, res: Response<RoomSummary[]>) {
+  res.json(await lobbyRooms())
 });
 
-router.post('/', requireAuth, async function(req, res, next) {
+router.post('/', requireAuth, async function(req: Request, res: Response<DbRoom | ApiError>) {
   if(await prisma.room.count() >= MAX_OPEN_ROOMS) {
-    return res.status(503).json({ error: 'too many rooms' })
+    res.status(503).json({ error: 'too many rooms' })
+    return
   }
   const room = await prisma.room.create({
     data: {},
   })
-  await updateLobby(req.app.get("socketio"))
-  return res.json(room)
+  await updateLobby(ioOf(req))
+  res.json(room)
 });
 
-router.post('/join', requireAuth, validate(roomActionSchema), async function(req, res, next) {
-  const roomId = req.body.roomId;
-  const playerId = req.player.id;
+router.post('/join', requireAuth, validate(roomActionSchema), async function(req: Request, res: Response<DbBoard>) {
+  const { roomId } = validated(req, roomActionSchema)
+  const player = playerOf(req)
+  const playerId = player.id
 
   const room = await prisma.room.findUnique({
     where: {
@@ -55,11 +59,13 @@ router.post('/join', requireAuth, validate(roomActionSchema), async function(req
   })
 
   if(!room) {
-    return res.sendStatus(404)
+    res.sendStatus(404)
+    return
   }
 
   if(room.boards.length >= 2 || room.boards.some(b => b.playerId == playerId)) {
-    return res.sendStatus(400)
+    res.sendStatus(400)
+    return
   }
 
   // The check above can be stale by the time we insert. The unique
@@ -68,35 +74,37 @@ router.post('/join', requireAuth, validate(roomActionSchema), async function(req
   const taken = new Set(room.boards.map(b => b.slot))
   const slot = taken.has(0) ? 1 : 0
 
-  let board
+  let board: DbBoard
   try {
     board = await prisma.board.create({
       data: {
         roomId,
         playerId,
-        playerName: req.player.name,
+        playerName: player.name,
         slot
       },
     })
   } catch(e) {
     if(isUniqueViolation(e)) {
-      return res.sendStatus(409)
+      res.sendStatus(409)
+      return
     }
     // The room was deleted (cleanup) between the lookup and the insert.
     if(isForeignKeyViolation(e)) {
-      return res.sendStatus(404)
+      res.sendStatus(404)
+      return
     }
     throw e
   }
-  const io = req.app.get("socketio")
+  const io = ioOf(req)
   await updateLobby(io)
   await updateRoom(io, roomId)
-  return res.json(board)
+  res.json(board)
 });
 
-router.post('/leave', requireAuth, validate(roomActionSchema), async function(req, res, next) {
-  const roomId = req.body.roomId;
-  const playerId = req.player.id;
+router.post('/leave', requireAuth, validate(roomActionSchema), async function(req: Request, res: Response<Prisma.BatchPayload>) {
+  const { roomId } = validated(req, roomActionSchema)
+  const playerId = playerOf(req).id
 
   const room = await prisma.room.findUnique({
     where: {
@@ -108,11 +116,13 @@ router.post('/leave', requireAuth, validate(roomActionSchema), async function(re
   })
 
   if(!room) {
-    return res.sendStatus(404)
+    res.sendStatus(404)
+    return
   }
 
   if(!room.boards.some(b => b.playerId == playerId)) {
-    return res.sendStatus(403)
+    res.sendStatus(403)
+    return
   }
 
   const boards = await prisma.board.findMany({
@@ -131,15 +141,15 @@ router.post('/leave', requireAuth, validate(roomActionSchema), async function(re
   })
   // The game can't go on with one player; let the room start a new one.
   await resetGames([roomId])
-  const io = req.app.get("socketio")
+  const io = ioOf(req)
   await updateLobby(io)
   await updateRoom(io, roomId)
-  return res.json(bb)
+  res.json(bb)
 });
 
-router.post('/start', requireAuth, validate(roomActionSchema), async function(req, res, next) {
-  const roomId = req.body.roomId;
-  const playerId = req.player.id;
+router.post('/start', requireAuth, validate(roomActionSchema), async function(req: Request, res: Response<StartResult>) {
+  const { roomId } = validated(req, roomActionSchema)
+  const playerId = playerOf(req).id
 
   const room = await prisma.room.findFirst({
     where: {
@@ -151,11 +161,13 @@ router.post('/start', requireAuth, validate(roomActionSchema), async function(re
   })
 
   if(!room || !room.boards.some(b => b.playerId == playerId)) {
-    return res.sendStatus(403)
+    res.sendStatus(403)
+    return
   }
 
   if(room.boards.length != 2) {
-    return res.json({started: false})
+    res.json({started: false})
+    return
   }
 
   // Only the request that flips started false -> true creates tiles, so two
@@ -165,7 +177,8 @@ router.post('/start', requireAuth, validate(roomActionSchema), async function(re
     data: { started: true }
   })
   if(!claimed.count) {
-    return res.json({started: false})
+    res.json({started: false})
+    return
   }
 
   const positions = Array.from({length: 36}, (e, i) => ({ row: Math.floor(i / 6), col: i % 6 }))
@@ -184,23 +197,22 @@ router.post('/start', requireAuth, validate(roomActionSchema), async function(re
     // A board was deleted in between (leave or sweep). Undo the claim so the
     // room can be started again once it has two players.
     await prisma.room.update({ where: { id: roomId }, data: { started: false } }).catch(console.error)
-    return res.sendStatus(409)
+    res.sendStatus(409)
+    return
   }
 
-  const io = req.app.get("socketio")
+  const io = ioOf(req)
 
   io.to(room.boards.map(b => "player:" + b.playerId)).emit("startGame", roomId)
 
   updateRoom(io, roomId).catch(console.error)
 
-  return res.json({started: true})
+  res.json({started: true})
 });
 
-router.post("/tiles/flip", requireAuth, validate(tileSchema), async function(req, res, next) {
-  const playerId = req.player.id;
-  const roomId = req.body.roomId;
-  const row = req.body.row;
-  const col = req.body.col;
+router.post("/tiles/flip", requireAuth, validate(tileSchema), async function(req: Request, res: Response<DbTile>) {
+  const playerId = playerOf(req).id
+  const { roomId, row, col } = validated(req, tileSchema)
 
   const board = await prisma.board.findFirst({
     where: {
@@ -213,13 +225,15 @@ router.post("/tiles/flip", requireAuth, validate(tileSchema), async function(req
   })
 
   if(!board) {
-    return res.sendStatus(403)
+    res.sendStatus(403)
+    return
   }
 
   const tile = board.tiles.find((tile) => tile.row == row && tile.col == col)
 
   if(!tile) {
-    return res.sendStatus(400)
+    res.sendStatus(400)
+    return
   }
 
   const tileUpdate = await prisma.tile.update({
@@ -231,16 +245,14 @@ router.post("/tiles/flip", requireAuth, validate(tileSchema), async function(req
     },
   })
 
-  updateRoom(req.app.get("socketio"), roomId).catch(console.error)
+  updateRoom(ioOf(req), roomId).catch(console.error)
 
-  return res.json(tileUpdate)
+  res.json(tileUpdate)
 });
 
-router.post("/selectcharacter", requireAuth, validate(tileSchema), async function(req, res, next) {
-  const playerId = req.player.id;
-  const roomId = req.body.roomId;
-  const col = req.body.col;
-  const row = req.body.row;
+router.post("/selectcharacter", requireAuth, validate(tileSchema), async function(req: Request, res: Response<DbBoard | null>) {
+  const playerId = playerOf(req).id
+  const { roomId, row, col } = validated(req, tileSchema)
 
   const owned = await prisma.board.findFirst({
     where: {
@@ -250,7 +262,8 @@ router.post("/selectcharacter", requireAuth, validate(tileSchema), async functio
   })
 
   if(!owned) {
-    return res.sendStatus(403)
+    res.sendStatus(403)
+    return
   }
 
   // Conditional update so two concurrent requests can't both set a character.
@@ -266,7 +279,8 @@ router.post("/selectcharacter", requireAuth, validate(tileSchema), async functio
   })
 
   if(!updated.count) {
-    return res.sendStatus(409)
+    res.sendStatus(409)
+    return
   }
 
   const board = await prisma.board.findUnique({
@@ -275,49 +289,52 @@ router.post("/selectcharacter", requireAuth, validate(tileSchema), async functio
     }
   })
 
-  updateRoom(req.app.get("socketio"), roomId).catch(console.error)
+  updateRoom(ioOf(req), roomId).catch(console.error)
 
-  return res.json(board)
+  res.json(board)
 });
 
-router.get("/message", validate(messageQuerySchema, 'query'), async function(req, res, next) {
-  const roomId = req.query.roomId;
+router.get("/message", validate(messageQuerySchema, 'query'), async function(req: Request, res: Response<ChatMessage[]>) {
+  const { roomId } = validated(req, messageQuerySchema, 'query')
 
   const room = await prisma.room.findUnique({ where: { id: roomId } })
 
   if(!room) {
-    return res.sendStatus(404)
+    res.sendStatus(404)
+    return
   }
 
-  return res.json(await recentMessages(roomId))
+  res.json(await recentMessages(roomId))
 });
 
 // One room's public state (no chosen characters), for players and spectators.
-router.get('/:id', validate(idParamSchema, 'params'), async function(req, res, next) {
-  const room = await getPublicRoom(req.params.id)
+router.get('/:id', validate(idParamSchema, 'params'), async function(req: Request, res: Response<Room>) {
+  const { id } = validated(req, idParamSchema, 'params')
+  const room = await getPublicRoom(id)
   if(!room) {
-    return res.sendStatus(404)
+    res.sendStatus(404)
+    return
   }
-  return res.json(room)
+  res.json(room)
 });
 
 // The logged-in player's own board in that room, chosen character included.
-router.get('/:id/board', requireAuth, validate(idParamSchema, 'params'), async function(req, res, next) {
+router.get('/:id/board', requireAuth, validate(idParamSchema, 'params'), async function(req: Request, res: Response<Board>) {
+  const { id } = validated(req, idParamSchema, 'params')
   const board = await prisma.board.findFirst({
-    where: { roomId: req.params.id, playerId: req.player.id },
+    where: { roomId: id, playerId: playerOf(req).id },
     include: { tiles: true }
   })
   if(!board) {
-    return res.sendStatus(404)
+    res.sendStatus(404)
+    return
   }
-  return res.json(privateBoard(board))
+  res.json(privateBoard(board))
 });
 
-router.post("/message", requireAuth, validate(messageSchema), async function(req, res, next) {
-  const playerId = req.player.id;
-  const playerName = req.player.name;
-  const roomId = req.body.roomId;
-  const message = req.body.message;
+router.post("/message", requireAuth, validate(messageSchema), async function(req: Request, res: Response<ChatMessage[]>) {
+  const { id: playerId, name: playerName } = playerOf(req)
+  const { roomId, message } = validated(req, messageSchema)
 
   const owned = await prisma.board.findFirst({
     where: {
@@ -327,7 +344,8 @@ router.post("/message", requireAuth, validate(messageSchema), async function(req
   })
 
   if(!owned) {
-    return res.sendStatus(403)
+    res.sendStatus(403)
+    return
   }
 
   await prisma.message.create({
@@ -346,9 +364,9 @@ router.post("/message", requireAuth, validate(messageSchema), async function(req
     await prisma.message.deleteMany({ where: { roomId, id: { lte: oldest.id } } })
   }
 
-  updateChat(req.app.get("socketio"), roomId, {rid: roomId, newMessage: message, playerId: playerId, playerName: playerName})
+  updateChat(ioOf(req), roomId, {rid: roomId, newMessage: message, playerId: playerId, playerName: playerName})
 
-  return res.json(await recentMessages(roomId))
+  res.json(await recentMessages(roomId))
 });
 
-module.exports = router;
+export default router;

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react"
 import { apiFetch, clearToken, getToken, onLogout, setToken } from "../api"
 import { socket } from "../socket"
-import { Player } from "../types"
+import type { NewSession, Player, SessionInfo } from "../../../shared/types"
 
 type PlayerState = {
     status: "loading" | "anonymous" | "ready",
@@ -38,7 +38,7 @@ socket.on("connect_error", (err) => {
 if (getToken()) {
     apiFetch("/session").then(async (res) => {
         if (res.ok) {
-            const { player, graceSeconds } = await res.json()
+            const { player, graceSeconds }: SessionInfo = await res.json()
             setState({ status: "ready", player, graceSeconds })
             socket.connect()
         } else {
@@ -55,7 +55,7 @@ async function login(name: string) {
     if (!res.ok) {
         return false
     }
-    const { token, player, graceSeconds } = await res.json()
+    const { token, player, graceSeconds }: NewSession = await res.json()
     setToken(token)
     setState({ status: "ready", player, graceSeconds })
     socket.connect()

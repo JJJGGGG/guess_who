@@ -1,11 +1,15 @@
-const crypto = require('crypto')
-const { sign, verify, requireAuth, socketAuth } = require('./auth')
+import crypto from 'crypto'
+import type { Request, Response } from 'express'
+import { sign, verify, requireAuth, socketAuth } from './auth.ts'
+import type { GameSocket } from './types.ts'
+
+const SECRET = process.env.SESSION_SECRET!
 
 const player = { id: 'p1', name: 'Alice' }
 
-function forge(payload) {
+function forge(payload: object): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  const sig = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(body).digest('base64url')
+  const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
   return body + '.' + sig
 }
 
@@ -54,17 +58,17 @@ describe('sign / verify', () => {
 
   test('rejects a correctly signed payload that is not JSON', () => {
     const body = Buffer.from('not json').toString('base64url')
-    const sig = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(body).digest('base64url')
+    const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
     expect(verify(body + '.' + sig)).toBeNull()
   })
 })
 
 describe('requireAuth', () => {
-  function run(header) {
-    const req = { get: (h) => (h === 'Authorization' ? header : undefined) }
+  function run(header: string | undefined) {
+    const req: Partial<Request> = { get: ((h: string) => (h === 'Authorization' ? header : undefined)) as Request['get'] }
     const res = { sendStatus: jest.fn() }
     const next = jest.fn()
-    requireAuth(req, res, next)
+    requireAuth(req as Request, res as unknown as Response, next)
     return { req, res, next }
   }
 
@@ -85,13 +89,13 @@ describe('socketAuth', () => {
   test('rejects a handshake without a valid token', () => {
     for (const auth of [undefined, {}, { token: 'bad' }]) {
       const next = jest.fn()
-      socketAuth({ handshake: { auth }, data: {} }, next)
+      socketAuth({ handshake: { auth }, data: {} } as unknown as GameSocket, next)
       expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'unauthorized' }))
     }
   })
 
   test('stores the player on socket.data', () => {
-    const socket = { handshake: { auth: { token: sign(player) } }, data: {} }
+    const socket = { handshake: { auth: { token: sign(player) } }, data: {} } as unknown as GameSocket
     const next = jest.fn()
     socketAuth(socket, next)
     expect(next).toHaveBeenCalledWith()
@@ -104,7 +108,7 @@ test('refuses to load with a short SESSION_SECRET', () => {
   process.env.SESSION_SECRET = 'short'
   try {
     jest.isolateModules(() => {
-      expect(() => require('./auth')).toThrow(/SESSION_SECRET/)
+      expect(() => require('./auth.ts')).toThrow(/SESSION_SECRET/)
     })
   } finally {
     process.env.SESSION_SECRET = original
