@@ -84,13 +84,15 @@ function addWebsockets(server, app) {
     // Every socket died with the previous process, so start everyone's grace
     // period now. Players who reconnect within GRACE_SECONDS keep their game.
     // With multiple instances this must become a lastSeenAt heartbeat instead.
-    prisma.board.updateMany({
+    const ready = prisma.board.updateMany({
         where: { disconnectedAt: null },
         data: { disconnectedAt: new Date() }
     }).catch(console.error)
 
-    setInterval(() => sweep(io).catch(console.error), SWEEP_INTERVAL_MS)
-    setInterval(() => cleanupRooms(io).catch(console.error), CLEANUP_INTERVAL_MS)
+    const timers = [
+        setInterval(() => sweep(io).catch(console.error), SWEEP_INTERVAL_MS),
+        setInterval(() => cleanupRooms(io).catch(console.error), CLEANUP_INTERVAL_MS)
+    ]
 
     io.sockets.on('connection', async function (socket) {
         const playerId = socket.data.player.id;
@@ -147,6 +149,11 @@ function addWebsockets(server, app) {
         }
     });
 
+    // `ready` resolves once the startup grace period is applied; `stop` clears
+    // the background jobs (used by tests to shut down cleanly).
+    return { io, ready, stop: () => timers.forEach(clearInterval) }
 }
 
 module.exports = addWebsockets;
+module.exports.sweep = sweep;
+module.exports.cleanupRooms = cleanupRooms;

@@ -1,6 +1,6 @@
 
 var {PrismaClient} = require('@prisma/client')
-const { ValidationError } = require('yup')
+const { ValidationError, string } = require('yup')
 const prisma = new PrismaClient()
 
 require('dotenv').config()
@@ -107,6 +107,11 @@ async function updateRoom(io, roomId) {
   }
 }
 
+// A string schema that trims. yup's own .trim() calls value.trim() before the
+// type check, so an object or array (e.g. {"name": {}}) threw a TypeError and
+// became a 500; this leaves non-strings alone so the type check answers 400.
+const trimmedString = () => string().transform(v => typeof v === 'string' ? v.trim() : v)
+
 // Validates req[source] with a yup schema and replaces it with the cast value
 // (trimmed strings, numbers from query strings, unknown keys dropped).
 // Express 5 leaves req.body undefined when no parser ran, and makes req.query a
@@ -142,6 +147,7 @@ module.exports = {
   isForeignKeyViolation,
   recentMessages,
   validate,
+  trimmedString,
   updateLobby,
   updateRoom,
   updateChat

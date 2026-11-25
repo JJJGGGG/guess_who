@@ -51,16 +51,16 @@ export default function Chat({ readOnly = false }: { readOnly?: boolean }) {
         <div>
             <div className="font-bold">Chat</div>
             <div className="h-40 overflow-scroll border rounded lg:w-1/2 gap-y-2 flex flex-col mb-2">
-                {messages.map(message => (
+                {messages.map((message, i) => (
                     message.playerId === player?.id ? (
-                        <div className="flex justify-end">
+                        <div key={i} className="flex justify-end">
                             <div className="px-2 py-1 border rounded inline-block">
                                 <span className="font-bold">You:</span>{" "}
                                 <span>{message.message}</span>
                             </div>
                         </div>
                     ) : (
-                        <div>
+                        <div key={i}>
                             <div className=" px-2 py-1 border rounded inline-block">
                                 <span className="font-bold">{message.player}:</span>{" "}
                                 <span>{message.message}</span>

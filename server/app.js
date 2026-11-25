@@ -21,7 +21,7 @@ if (isProduction) app.set('trust proxy', 1);
 // enforced on the built client, which has no inline scripts.
 app.use(helmet({ contentSecurityPolicy: isProduction ? undefined : false }));
 
-app.use(logger('dev'));
+if (process.env.NODE_ENV !== 'test') app.use(logger('dev'));
 
 // Everything under /api is JSON. The prefix keeps API routes (e.g. /api/rooms)
 // apart from client pages (e.g. /rooms/:roomId), which share the same origin.

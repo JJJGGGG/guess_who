@@ -2,11 +2,11 @@ var express = require('express');
 var crypto = require('crypto');
 var router = express.Router();
 const { sign, requireAuth } = require('../auth')
-const { object, string } = require('yup')
-const { GRACE_SECONDS, validate } = require('../utils')
+const { object } = require('yup')
+const { GRACE_SECONDS, validate, trimmedString } = require('../utils')
 
 const sessionSchema = object({
-  name: string().trim().min(1).max(20).required()
+  name: trimmedString().min(1).max(20).required()
 })
 
 router.post('/', validate(sessionSchema), function(req, res, next) {

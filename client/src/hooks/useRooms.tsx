@@ -10,8 +10,9 @@ function useRooms(): [RoomSummary[], (r: RoomSummary[]) => void] {
 
     useEffect(() => {
         fetch("/api/rooms")
-            .then((res) => res.json())
+            .then((res) => res.ok ? res.json() : [])
             .then((res) => setRooms(res))
+            .catch(console.error)
     }, [])
 
     useEffect(() => {

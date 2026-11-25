@@ -2,8 +2,8 @@
 var express = require('express');
 var router = express.Router();
 var {PrismaClient} = require('@prisma/client')
-const { object, number, string } = require('yup')
-const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard, resetGames, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, MAX_OPEN_ROOMS } = require('../utils')
+const { object, number } = require('yup')
+const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard, resetGames, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, trimmedString, MAX_OPEN_ROOMS } = require('../utils')
 const { requireAuth } = require('../auth')
 
 const prisma = new PrismaClient()
@@ -20,7 +20,7 @@ const roomActionSchema = object({ roomId })
 const tileSchema = object({ roomId, row: cell, col: cell })
 const messageSchema = object({
   roomId,
-  message: string().trim().min(1).max(MAX_MESSAGE_LENGTH).required()
+  message: trimmedString().min(1).max(MAX_MESSAGE_LENGTH).required()
 })
 const messageQuerySchema = object({ roomId })
 const idParamSchema = object({ id: roomId })

@@ -15,4 +15,17 @@ module.exports = {
       { allowConstantExport: true },
     ],
   },
+  overrides: [
+    {
+      // Tests load modules in isolation with require() and fake loosely typed
+      // socket payloads.
+      files: ['client/**/*.test.{ts,tsx}', 'client/test/**'],
+      env: { jest: true, node: true },
+      rules: {
+        '@typescript-eslint/no-var-requires': 'off',
+        '@typescript-eslint/no-explicit-any': 'off',
+        'react-refresh/only-export-components': 'off',
+      },
+    },
+  ],
 }

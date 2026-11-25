@@ -1,7 +1,7 @@
 import { Outlet } from "react-router-dom";
 import usePlayer from "./hooks/usePlayer";
 import ConnectionBanner from "./ConnectionBanner";
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { string, ValidationError } from "yup";
 
 const MAX_NAME_LENGTH = 20
@@ -15,11 +15,11 @@ export default function Layout() {
     const { status, player, login } = usePlayer()
     const [error, setError] = useState("")
 
-    async function chooseName(e: any) {
+    async function chooseName(e: FormEvent<HTMLFormElement>) {
         e.preventDefault()
         let name: string
         try {
-            name = await nameSchema.validate(e.target.playerName.value)
+            name = await nameSchema.validate(new FormData(e.currentTarget).get("playerName"))
         } catch (err) {
             if (err instanceof ValidationError) {
                 setError(err.message)

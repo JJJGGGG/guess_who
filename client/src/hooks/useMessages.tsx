@@ -38,18 +38,15 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
         return true
     }
 
-    async function fetchMessages() {
-        const msgs = await apiFetch(
-            "/rooms/message?" + new URLSearchParams({
-                roomId: roomId || "",
-            }).toString()).then((res) => res.json())
-
-        setMessages(msgs.map(toMessage))
-    }
-
-
     useEffect(() => {
-        fetchMessages();
+        // An error (e.g. unknown room) leaves the chat empty, and a response
+        // that arrives after switching rooms is dropped.
+        let cancelled = false
+        apiFetch("/rooms/message?" + new URLSearchParams({ roomId: roomId || "" }).toString())
+            .then((res) => res.ok ? res.json() : [])
+            .then((msgs: StoredMessage[]) => { if (!cancelled) setMessages(msgs.map(toMessage)) })
+            .catch(console.error)
+        return () => { cancelled = true }
     }, [roomId])
 
     useEffect(() => {
