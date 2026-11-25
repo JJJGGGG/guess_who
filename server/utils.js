@@ -1,10 +1,15 @@
 
 var {PrismaClient} = require('@prisma/client')
+const { ValidationError } = require('yup')
 const prisma = new PrismaClient()
 
 require('dotenv').config()
 
 const GRACE_SECONDS = parseInt(process.env.GRACE_SECONDS) || 30
+// Soft cap: also bounds what updateLobby re-reads and broadcasts.
+const MAX_OPEN_ROOMS = parseInt(process.env.MAX_OPEN_ROOMS) || 50
+// Messages sent to clients per room; older ones stay stored up to the trim limit.
+const RECENT_MESSAGES = 100
 
 // socket.io channels. A socket watches either the lobby or one room (see the
 // "watch" handler in routes/socket.js), so events only reach the page that
@@ -70,6 +75,18 @@ async function resetGames(roomIds) {
 
 // Prisma's error for a unique constraint violation.
 const isUniqueViolation = (e) => e && e.code === 'P2002'
+// Prisma's error for a missing related row (e.g. the room was deleted meanwhile).
+const isForeignKeyViolation = (e) => e && e.code === 'P2003'
+
+// The newest RECENT_MESSAGES of a room, oldest first.
+async function recentMessages(roomId) {
+  const messages = await prisma.message.findMany({
+    where: { roomId },
+    orderBy: { id: 'desc' },
+    take: RECENT_MESSAGES
+  })
+  return messages.reverse()
+}
 
 async function getPublicRoom(roomId) {
   const room = await prisma.room.findUnique({ where: { id: roomId }, include: roomInclude })
@@ -90,12 +107,31 @@ async function updateRoom(io, roomId) {
   }
 }
 
+// Validates req[source] with a yup schema and replaces it with the cast value
+// (trimmed strings, numbers from query strings, unknown keys dropped).
+// Express 5 leaves req.body undefined when no parser ran, and makes req.query a
+// getter, so default to {} and redefine the property instead of assigning it.
+function validate(schema, source = 'body') {
+  return function(req, res, next) {
+    schema.validate(req[source] ?? {}, { stripUnknown: true }).then(function(value) {
+      Object.defineProperty(req, source, { value, writable: true, enumerable: true, configurable: true })
+      next()
+    }, function(err) {
+      if (err instanceof ValidationError) {
+        return res.status(400).json({ error: err.message })
+      }
+      next(err)
+    })
+  }
+}
+
 function updateChat(io, roomId, message) {
   io.to(roomChannel(roomId)).emit("updateChat", message)
 }
 
 module.exports = {
   GRACE_SECONDS,
+  MAX_OPEN_ROOMS,
   LOBBY,
   roomChannel,
   lobbySelect,
@@ -103,6 +139,9 @@ module.exports = {
   privateBoard,
   resetGames,
   isUniqueViolation,
+  isForeignKeyViolation,
+  recentMessages,
+  validate,
   updateLobby,
   updateRoom,
   updateChat

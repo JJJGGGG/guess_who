@@ -17,6 +17,8 @@ model Room {
   id       Int        @id @default(autoincrement())
   // Set once by /start with a conditional update, so only one request creates tiles.
   started  Boolean    @default(false)
+  // Lets the cleanup job skip rooms that were just created and are still empty.
+  createdAt DateTime  @default(now())
   boards   Board[]
   messages Message[]
 }

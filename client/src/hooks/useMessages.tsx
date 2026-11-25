@@ -18,7 +18,7 @@ function toMessage(msg: StoredMessage): Message {
     }
 }
 
-export default function useMessages(roomId?: string): [Message[], (msg: string) => void] {
+export default function useMessages(roomId?: string): [Message[], (msg: string) => Promise<boolean>] {
     const [messages, setMessages] = useState<Message[]>([]);
 
     async function postMessage(message: string) {
@@ -30,11 +30,12 @@ export default function useMessages(roomId?: string): [Message[], (msg: string) 
             })
         })
         if(!res.ok) {
-            return
+            return false
         }
         const msgs = await res.json()
 
         setMessages(msgs.map(toMessage))
+        return true
     }
 
     async function fetchMessages() {

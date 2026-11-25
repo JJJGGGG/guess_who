@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import useMessages from "./hooks/useMessages";
 import usePlayer from "./hooks/usePlayer";
 import { useParams } from "react-router-dom";
+import { string, ValidationError } from "yup";
+
+const MAX_MESSAGE_LENGTH = 500
+
+const messageSchema = string()
+    .trim()
+    .required("Write a message first")
+    .max(MAX_MESSAGE_LENGTH, `Messages can be at most ${MAX_MESSAGE_LENGTH} characters`)
 
 // Spectators can read the chat but only players can post.
 export default function Chat({ readOnly = false }: { readOnly?: boolean }) {
@@ -10,6 +18,7 @@ export default function Chat({ readOnly = false }: { readOnly?: boolean }) {
     const [messages, addMessage] = useMessages(roomId);
 
     const [curMsg, setCurMsg] = useState("")
+    const [error, setError] = useState("")
 
     const scrollref = useRef<HTMLDivElement>(null);
 
@@ -18,6 +27,26 @@ export default function Chat({ readOnly = false }: { readOnly?: boolean }) {
             scrollref.current.scrollIntoView({ behavior: 'smooth' })
         }
     }, [messages])
+
+    async function send() {
+        let message: string
+        try {
+            message = await messageSchema.validate(curMsg)
+        } catch (e) {
+            if (e instanceof ValidationError) {
+                setError(e.message)
+                return
+            }
+            throw e
+        }
+        setError("")
+        if (await addMessage(message)) {
+            setCurMsg("")
+        } else {
+            setError("Couldn't send the message, try again")
+        }
+    }
+
     return (
         <div>
             <div className="font-bold">Chat</div>
@@ -42,8 +71,9 @@ export default function Chat({ readOnly = false }: { readOnly?: boolean }) {
                 <div ref={scrollref}></div>
             </div>
             {!readOnly && <div>
-                <input className="border border-2 mr-2 rounded px-2 py-1" value={curMsg} onChange={(e) => setCurMsg(e.target.value)} />
-                <button className="rounded text-white bg-sky-600 px-2 py-1 mb-2" onClick={() => addMessage(curMsg)}>Enviar</button>
+                <input className="border border-2 mr-2 rounded px-2 py-1" value={curMsg} maxLength={MAX_MESSAGE_LENGTH} onChange={(e) => setCurMsg(e.target.value)} />
+                <button className="rounded text-white bg-sky-600 px-2 py-1 mb-2" onClick={send}>Enviar</button>
+                {error && <div className="text-red-600 text-sm">{error}</div>}
             </div>}
         </div>
     )

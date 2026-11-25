@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import useRooms from "./hooks/useRooms";
 import usePlayer from "./hooks/usePlayer";
 import { apiFetch } from "./api";
+import { useState } from "react";
 
 function Rooms() {
 
@@ -9,12 +10,20 @@ function Rooms() {
     const { player } = usePlayer()
 
     const [rooms] = useRooms();
+    const [error, setError] = useState("")
 
     async function createRoom() {
         // The new room arrives through the lobby's "updateRooms" event.
-        await apiFetch("/rooms", {
+        const res = await apiFetch("/rooms", {
             method: "post"
         })
+        if (res.status == 503) {
+            setError("Too many rooms open, try again later")
+        } else if (res.status == 429) {
+            setError("Too many rooms created, wait a minute")
+        } else {
+            setError(res.ok ? "" : "Couldn't create the room")
+        }
     }
 
     async function joinRoom(id: number) {
@@ -32,6 +41,7 @@ function Rooms() {
     return <div>
         <div>
             <button onClick={createRoom} className="rounded text-white bg-sky-600 px-2 py-1 mb-2">Create room</button>
+            {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
         </div>
         <div>
             {rooms.map((room) => (

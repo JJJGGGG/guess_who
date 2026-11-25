@@ -14,7 +14,7 @@ async function mountClient(app, httpServer) {
       throw new Error('dist/index.html not found: run `npm run build` first');
     }
     app.use(express.static(dist, { index: false }));
-    app.get('*', function(req, res) {
+    app.get('/{*splat}', function(req, res) {
       res.sendFile(path.join(dist, 'index.html'));
     });
     return;

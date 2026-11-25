@@ -2,14 +2,15 @@ var express = require('express');
 var crypto = require('crypto');
 var router = express.Router();
 const { sign, requireAuth } = require('../auth')
-const { GRACE_SECONDS } = require('../utils')
+const { object, string } = require('yup')
+const { GRACE_SECONDS, validate } = require('../utils')
 
-router.post('/', function(req, res, next) {
-  const name = typeof req.body.name === 'string' ? req.body.name.trim() : ''
+const sessionSchema = object({
+  name: string().trim().min(1).max(20).required()
+})
 
-  if (name.length < 1 || name.length > 20) {
-    return res.sendStatus(400)
-  }
+router.post('/', validate(sessionSchema), function(req, res, next) {
+  const name = req.body.name
 
   const player = { id: crypto.randomUUID(), name }
   return res.json({ token: sign(player), player, graceSeconds: GRACE_SECONDS })

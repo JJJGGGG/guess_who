@@ -47,6 +47,12 @@ async function main() {
   });
 }
 
+// Last resort for promises nobody awaits or catches (e.g. a socket handler).
+// Log and keep serving; Node would otherwise exit the whole process.
+process.on('unhandledRejection', function(reason) {
+  console.error('Unhandled rejection:', reason);
+});
+
 main().catch(function(err) {
   console.error(err);
   process.exit(1);

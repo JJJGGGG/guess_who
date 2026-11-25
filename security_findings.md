@@ -120,12 +120,14 @@ Commit b59e916 (d94c392 before the history rewrite) went back to `http.createSer
 
 > **Fixed (2026-11-25), options 1 + 2 (+ part of 3):** the room channel and `GET /api/rooms/:id` now send a public view only (`publicRoom` in `server/utils.js`): players, `disconnectedAt`, a `ready` flag, and tiles as `{row, col, flipped}`. `chosenRow`/`chosenCol` are never in it. Each player gets their own full board from the new `GET /api/rooms/:id/board` (auth required, own board only), and `updateRoom` pushes a `board` event to `player:<id>` for every board in the room. #16's socketId is gone, so this channel is server-side. Identity is per tab, so anything a spectator sees, a player can see too. Spectators therefore see flipped tiles but never chosen characters. There is no end-of-game state yet; revealing characters at the end would need one. Spectate redirects a player in that room to their game page, but that's only a UX guard.
 
-**15. The server doesn't validate input.**
+**15. The server doesn't validate input.** ✅ Done
 Nothing checks the type or length of playerId, roomId, message, row, col or socketId. Chat messages have no length limit, duplicate names are allowed, and the same player can join twice.
 *Files:* `rooms.js:22-49, 209-232`
 1. Validate each route with a zod schema in middleware, for example `z.object({roomId: z.number().int(), playerId: z.string().min(1).max(32)})`.
 2. Use express-validator on each route.
 3. Write the checks by hand in each handler. This adds no dependency but is repetitive and easy to forget.
+
+> **Fixed (2026-11-25), with yup instead of zod (done together with #19):** every route that takes input runs a yup schema through the `validate(schema, source)` middleware in `server/utils.js`. Invalid input gets `400 {error}`. The cast value replaces `req.body`/`req.query`, so strings are trimmed and unknown keys dropped. Each schema lives in the file that uses it: `roomId`, `row`/`col` (0–5) and `message` (1–500 chars after trim) in `server/routes/rooms.js`, and `name` (1–20) in `server/routes/session.js`. The client validates the name (`Layout.tsx`) and chat message (`Chat.tsx`) with its own yup schemas before sending, and shows the error inline. Prisma's `PrismaClientValidationError` → 400 stays as a backstop. Duplicate names are still allowed, since identity is the token, not the name. Joining twice was already prevented by #17.
 
 **16. The client picks its own socketId, and everyone's socketId is broadcast.** ✅ Done
 `/api/rooms/join` stores whatever socketId it's sent, and `updateRooms` shows every player's socketId. An attacker can attach a board to the victim's socket, which also breaks the cleanup that runs on disconnect.
@@ -145,25 +147,35 @@ Nothing checks the type or length of playerId, roomId, message, row, col or sock
 
 > **Fixed (2026-11-25), option 2:** migration `20261125000000_board_slot_room_started` adds `Board.slot` (0 or 1) with `@@unique([roomId, slot])` and `@@unique([roomId, playerId])`, plus `Room.started`. `/join` picks the free slot, and a concurrent duplicate fails in the database and returns 409. `/start` claims the room with `updateMany({where: {id, started: false}})`, so only one request creates tiles. Both boards' tiles are created in one transaction, and if that fails the claim is undone. New `resetGames` in `server/utils.js` (tiles, chosen characters, `started`) runs on `/leave` as well as in the grace sweep. Before, `/leave` left the remaining player's tiles, so the room could never start again. The migration backfills slots and `started`, and drops boards that would break the new constraints. Checked with 6 parallel joins (2 succeed), 5 parallel self-joins (1 succeeds), 6 parallel starts (1 creates tiles, 36 per board) and leave → rejoin → start.
 
-**18. Async errors aren't caught globally (beyond the null checks in #2).**
+**18. Async errors aren't caught globally (beyond the null checks in #2).** ✅ Done
 Any other Prisma error, such as a wrong value type, still crashes the server.
 *Files:* `rooms.js` (all handlers), `server/index.js`
 1. Upgrade to Express 5, which passes rejected promises to the error handler.
 2. Add `require('express-async-errors')` at the top of `app.js`.
 3. Wrap each handler in a small `asyncHandler(fn)` helper, and add `process.on('unhandledRejection', log)` as a last resort.
 
-**19. No rate limiting, and data grows without limit.**
+> **Fixed (2026-11-25), option 1:** upgraded to Express 5, which forwards a rejected promise from any route handler to the error handler on its own, so new routes are covered without needing a per-route wrapper. An earlier `asyncHandler` wrapper was removed. `process.on('unhandledRejection')` in `server/index.js` stays as a last resort for socket.io handlers, which are not Express routes. Express 5 follow-ups: `/:id(\\d+)` routes became `/:id` plus yup validation of `req.params` (a non-numeric id now gets 400), the SPA fallback is `/{*splat}`, and `validate()` redefines `req.query` (a read-only getter in Express 5) and treats a missing body as `{}`.
+
+**19. No rate limiting, and data grows without limit.** ✅ Done
 Rooms and chat messages can be created without limit and are never deleted. Every change re-reads all rooms and sends them to every client.
 *Files:* `rooms.js:14-20, 209-232`, `utils.js:4-8`, `app.js`
 1. Add `express-rate-limit` on the POST routes, a maximum message length, and a cap on open rooms.
 2. Add a periodic cleanup job that deletes empty or idle rooms and old messages.
 3. Rate-limit at the platform or a reverse proxy (e.g. nginx `limit_req`) in front of Node.
 
+> **Fixed (2026-11-25), options 1 + 2:**
+> - **Rate limits** (`express-rate-limit` in `server/app.js`, per IP and per minute, overridable via env): all non-GET `/api` requests 120 (`RATE_LIMIT_WRITES_PER_MIN`), `POST /api/session` 10, `POST /api/rooms` 5, `POST /api/rooms/message` 30. Over the limit → `429 {error}` with `RateLimit` headers.
+> - **Caps:** at most `MAX_OPEN_ROOMS` (default 50) rooms. `POST /api/rooms` answers 503 beyond that, which also bounds what `updateLobby` re-reads and broadcasts per change. Messages are at most 500 chars (see #15). Each room keeps the newest 200 messages: older ones are deleted on post. `GET`/`POST /message` return only the newest 100.
+> - **Cleanup:** migration `20261125164229_room_created_at` adds `Room.createdAt`. Every 60 s, `cleanupRooms` in `server/routes/socket.js` deletes rooms with no boards older than `EMPTY_ROOM_TTL_MINUTES` (default 10), and their messages cascade with them. Rooms abandoned by disconnected players become empty through the existing grace sweep, then age out. `/join` on a room deleted mid-request returns 404 (P2003), not 500.
+> - The migration backfills existing rooms with integer milliseconds. That is Prisma's SQLite DateTime format. SQLite's `CURRENT_TIMESTAMP` default stores text, which never compares as older than the cutoff.
+> - **Not done (option 3):** limits live in memory, so they are per process and reset on restart. With more traffic or multiple instances, rate-limit at the platform (Render/AWS WAF) or a reverse proxy (nginx `limit_req`) too.
+> - Checked with curl against a copy of the dev DB: invalid names, room ids, rows and messages → 400; 300 posts → 200 stored, 100 returned; 6th room create → 429; create over the cap → 503; 11th session → 429; empty rooms (including migrated ones) deleted after the TTL while a room with a player stays.
+
 ---
 
 ## Ambiguous → plan mode
 
-**20. No authentication: a player is just a name in the URL.**
+**20. No authentication: a player is just a name in the URL.** ✅ Done
 `playerId` comes from `?playerId=` and is copied into request bodies, so anyone can act as anyone. This causes #21–23 and limits the fixes for #4, #14 and #16.
 *Files:* `client/src/Rooms.tsx:11-13, 38`, `rooms.js:24, 53, 88, 143, 210`, `app.js`
 1. On join, give the player a random token and store a hash of it on the Board. The client sends it in an `Authorization` header and in the socket handshake, and the server gets playerId from the token:
@@ -175,23 +187,29 @@ Rooms and chat messages can be created without limit and are never deleted. Ever
 4. Move all game actions onto the authenticated socket connection, so the server identifies players by their socket.
 5. Add real accounts (OAuth or password). That's a lot for a casual game, but it gives players a lasting identity.
 
-**21. Anyone can flip another player's tiles.**
+**21. Anyone can flip another player's tiles.** ✅ Done
 `/api/rooms/tiles/flip` finds the board using the `roomId` and `playerId` from the request body.
 *Files:* `rooms.js:142-172`
 1. After #20, use the authenticated playerId instead of the one in the body.
 2. Before #20, require a per-board secret that only `/api/rooms/join` returns.
 
-**22. Anyone can change any player's secret character.**
+**22. Anyone can change any player's secret character.** ✅ Done
 `/api/rooms/selectcharacter` updates whatever `boardId` it's sent and never checks who owns it. (Input validation is covered in #3.)
 *Files:* `rooms.js:174-192`, `client/src/Game.tsx:102`
 1. After #20, use `update({where: {id: boardId, playerId: authPlayerId}})`, or drop boardId and find the board from the token.
 2. Before #20, use the same per-board secret as option 2 of #21.
 
-**23. Anyone can post chat as any name, in any room.**
+**23. Anyone can post chat as any name, in any room.** ✅ Done
 `POST /api/rooms/message` accepts any playerId and roomId and doesn't check membership.
 *Files:* `rooms.js:209-232`, `client/src/hooks/useMessages.tsx:221-239`
 1. After #20, take the sender from the token, and only let room members post (plus spectators, if you want that).
 2. Decide whether spectators can chat. That product decision sets the membership rule.
+
+> **Fixed (2026-11-25), via #20 (option 1):** `POST /api/rooms/message` uses `requireAuth` and takes the sender (`playerId`, `playerName`) from the signed token (`req.player`). Any playerId in the body is ignored. Only players with a board in the room can post; anyone else gets 403. Spectators can read chat but not post, by design (`<Chat readOnly />` in `client/src/Spectate.tsx`). The body is validated (`messageSchema`: positive int roomId, trimmed message of 1–500 chars) and each room keeps at most 200 messages (`MAX_MESSAGES_PER_ROOM`).
+
+24: testing is missing. 
+25: update app dependencies. all is several years long.
+26: ui is ugly
 
 ---
 

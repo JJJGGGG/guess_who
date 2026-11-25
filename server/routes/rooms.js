@@ -2,10 +2,28 @@
 var express = require('express');
 var router = express.Router();
 var {PrismaClient} = require('@prisma/client')
-const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard, resetGames, isUniqueViolation } = require('../utils')
+const { object, number, string } = require('yup')
+const { updateLobby, updateRoom, updateChat, lobbySelect, getPublicRoom, privateBoard, resetGames, isUniqueViolation, isForeignKeyViolation, recentMessages, validate, MAX_OPEN_ROOMS } = require('../utils')
 const { requireAuth } = require('../auth')
 
 const prisma = new PrismaClient()
+
+const BOARD_SIZE = 6
+const MAX_MESSAGE_LENGTH = 500
+// Stored per room; older messages are deleted when a new one is posted.
+const MAX_MESSAGES_PER_ROOM = 200
+
+const roomId = number().integer().positive().required()
+const cell = number().integer().min(0).max(BOARD_SIZE - 1).required()
+
+const roomActionSchema = object({ roomId })
+const tileSchema = object({ roomId, row: cell, col: cell })
+const messageSchema = object({
+  roomId,
+  message: string().trim().min(1).max(MAX_MESSAGE_LENGTH).required()
+})
+const messageQuerySchema = object({ roomId })
+const idParamSchema = object({ id: roomId })
 
 // Lobby list: who is in each room, nothing else.
 router.get('/', async function(req, res, next) {
@@ -13,6 +31,9 @@ router.get('/', async function(req, res, next) {
 });
 
 router.post('/', requireAuth, async function(req, res, next) {
+  if(await prisma.room.count() >= MAX_OPEN_ROOMS) {
+    return res.status(503).json({ error: 'too many rooms' })
+  }
   const room = await prisma.room.create({
     data: {},
   })
@@ -20,7 +41,7 @@ router.post('/', requireAuth, async function(req, res, next) {
   return res.json(room)
 });
 
-router.post('/join', requireAuth, async function(req, res, next) {
+router.post('/join', requireAuth, validate(roomActionSchema), async function(req, res, next) {
   const roomId = req.body.roomId;
   const playerId = req.player.id;
 
@@ -61,15 +82,19 @@ router.post('/join', requireAuth, async function(req, res, next) {
     if(isUniqueViolation(e)) {
       return res.sendStatus(409)
     }
+    // The room was deleted (cleanup) between the lookup and the insert.
+    if(isForeignKeyViolation(e)) {
+      return res.sendStatus(404)
+    }
     throw e
   }
   const io = req.app.get("socketio")
   await updateLobby(io)
   await updateRoom(io, roomId)
   return res.json(board)
-})
+});
 
-router.post('/leave', requireAuth, async function(req, res, next) {
+router.post('/leave', requireAuth, validate(roomActionSchema), async function(req, res, next) {
   const roomId = req.body.roomId;
   const playerId = req.player.id;
 
@@ -110,9 +135,9 @@ router.post('/leave', requireAuth, async function(req, res, next) {
   await updateLobby(io)
   await updateRoom(io, roomId)
   return res.json(bb)
-})
+});
 
-router.post('/start', requireAuth, async function(req, res, next) {
+router.post('/start', requireAuth, validate(roomActionSchema), async function(req, res, next) {
   const roomId = req.body.roomId;
   const playerId = req.player.id;
 
@@ -169,9 +194,9 @@ router.post('/start', requireAuth, async function(req, res, next) {
   updateRoom(io, roomId).catch(console.error)
 
   return res.json({started: true})
-})
+});
 
-router.post("/tiles/flip", requireAuth, async function(req, res, next) {
+router.post("/tiles/flip", requireAuth, validate(tileSchema), async function(req, res, next) {
   const playerId = req.player.id;
   const roomId = req.body.roomId;
   const row = req.body.row;
@@ -209,9 +234,9 @@ router.post("/tiles/flip", requireAuth, async function(req, res, next) {
   updateRoom(req.app.get("socketio"), roomId).catch(console.error)
 
   return res.json(tileUpdate)
-})
+});
 
-router.post("/selectcharacter", requireAuth, async function(req, res, next) {
+router.post("/selectcharacter", requireAuth, validate(tileSchema), async function(req, res, next) {
   const playerId = req.player.id;
   const roomId = req.body.roomId;
   const col = req.body.col;
@@ -226,11 +251,6 @@ router.post("/selectcharacter", requireAuth, async function(req, res, next) {
 
   if(!owned) {
     return res.sendStatus(403)
-  }
-
-  const inRange = (n) => Number.isInteger(n) && n >= 0 && n <= 5
-  if(!inRange(row) || !inRange(col)) {
-    return res.sendStatus(400)
   }
 
   // Conditional update so two concurrent requests can't both set a character.
@@ -258,51 +278,42 @@ router.post("/selectcharacter", requireAuth, async function(req, res, next) {
   updateRoom(req.app.get("socketio"), roomId).catch(console.error)
 
   return res.json(board)
-})
+});
 
-router.get("/message", async function(req, res, next) {
-  const roomId = parseInt(req.query.roomId);
+router.get("/message", validate(messageQuerySchema, 'query'), async function(req, res, next) {
+  const roomId = req.query.roomId;
 
-  if(Number.isNaN(roomId)) {
-    return res.sendStatus(400)
-  }
-
-  const room = await prisma.room.findFirst({
-    where: { id: roomId },
-    include: {
-      messages: true
-    }
-  })
+  const room = await prisma.room.findUnique({ where: { id: roomId } })
 
   if(!room) {
     return res.sendStatus(404)
   }
 
-  return res.json(room.messages)
-})
+  return res.json(await recentMessages(roomId))
+});
 
 // One room's public state (no chosen characters), for players and spectators.
-router.get('/:id(\\d+)', async function(req, res, next) {
-  const room = await getPublicRoom(parseInt(req.params.id))
+router.get('/:id', validate(idParamSchema, 'params'), async function(req, res, next) {
+  const room = await getPublicRoom(req.params.id)
   if(!room) {
     return res.sendStatus(404)
   }
   return res.json(room)
-})
+});
 
 // The logged-in player's own board in that room, chosen character included.
-router.get('/:id(\\d+)/board', requireAuth, async function(req, res, next) {
+router.get('/:id/board', requireAuth, validate(idParamSchema, 'params'), async function(req, res, next) {
   const board = await prisma.board.findFirst({
-    where: { roomId: parseInt(req.params.id), playerId: req.player.id },
+    where: { roomId: req.params.id, playerId: req.player.id },
     include: { tiles: true }
   })
   if(!board) {
     return res.sendStatus(404)
   }
   return res.json(privateBoard(board))
-})
+});
 
-router.post("/message", requireAuth, async function(req, res, next) {
+router.post("/message", requireAuth, validate(messageSchema), async function(req, res, next) {
   const playerId = req.player.id;
   const playerName = req.player.name;
   const roomId = req.body.roomId;
@@ -319,25 +330,25 @@ router.post("/message", requireAuth, async function(req, res, next) {
     return res.sendStatus(403)
   }
 
-  const room = await prisma.room.update({
-    where: { id: roomId },
-    data: {
-      messages: {
-        create: {
-          message: message,
-          playerId: playerId,
-          playerName: playerName,
-        }
-      }
-     },
-     include: {
-      messages: true
-     }
+  await prisma.message.create({
+    data: { roomId, message, playerId, playerName }
   })
+
+  // Keep only the newest MAX_MESSAGES_PER_ROOM.
+  const [oldest] = await prisma.message.findMany({
+    where: { roomId },
+    orderBy: { id: 'desc' },
+    skip: MAX_MESSAGES_PER_ROOM,
+    take: 1,
+    select: { id: true }
+  })
+  if(oldest) {
+    await prisma.message.deleteMany({ where: { roomId, id: { lte: oldest.id } } })
+  }
 
   updateChat(req.app.get("socketio"), roomId, {rid: roomId, newMessage: message, playerId: playerId, playerName: playerName})
 
-  return res.json(room.messages)
-})
+  return res.json(await recentMessages(roomId))
+});
 
 module.exports = router;

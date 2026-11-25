@@ -8,6 +8,10 @@ const prisma = new PrismaClient()
 require('dotenv').config()
 
 const SWEEP_INTERVAL_MS = 5000
+const CLEANUP_INTERVAL_MS = 60 * 1000
+// Empty rooms older than this are deleted. Long enough that a fresh room isn't
+// removed before anyone joins it.
+const EMPTY_ROOM_TTL_MINUTES = Number(process.env.EMPTY_ROOM_TTL_MINUTES || 10)
 
 // Deletes boards whose player stayed disconnected longer than GRACE_SECONDS,
 // then resets the opponent's board in those rooms so a new game can start.
@@ -35,6 +39,20 @@ async function sweep(io) {
     await resetGames(roomIds)
     await updateLobby(io)
     await Promise.all(roomIds.map(id => updateRoom(io, id)))
+}
+
+// Deletes rooms nobody is in (messages go with them via onDelete: Cascade).
+// Abandoned rooms end up here once sweep removes their disconnected players.
+async function cleanupRooms(io) {
+    const deleted = await prisma.room.deleteMany({
+        where: {
+            boards: { none: {} },
+            createdAt: { lt: new Date(Date.now() - EMPTY_ROOM_TTL_MINUTES * 60 * 1000) }
+        }
+    })
+    if(deleted.count) {
+        await updateLobby(io)
+    }
 }
 
 // Rooms the player has a board in, so a (dis)connect is only sent to them.
@@ -72,6 +90,7 @@ function addWebsockets(server, app) {
     }).catch(console.error)
 
     setInterval(() => sweep(io).catch(console.error), SWEEP_INTERVAL_MS)
+    setInterval(() => cleanupRooms(io).catch(console.error), CLEANUP_INTERVAL_MS)
 
     io.sockets.on('connection', async function (socket) {
         const playerId = socket.data.player.id;
@@ -97,6 +116,7 @@ function addWebsockets(server, app) {
         })
 
         socket.on('disconnect', async () => {
+          try {
             const others = (await io.in("player:" + playerId).fetchSockets())
                 .filter(s => s.id !== socket.id)
             if(others.length) {
@@ -109,14 +129,21 @@ function addWebsockets(server, app) {
             if(marked.count) {
                 updatePlayerRooms(io, playerId).catch(console.error)
             }
+          } catch(e) {
+            console.error(e)
+          }
         })
 
-        const restored = await prisma.board.updateMany({
-            where: { playerId, disconnectedAt: { not: null } },
-            data: { disconnectedAt: null }
-        })
-        if(restored.count) {
-            updatePlayerRooms(io, playerId).catch(console.error)
+        try {
+            const restored = await prisma.board.updateMany({
+                where: { playerId, disconnectedAt: { not: null } },
+                data: { disconnectedAt: null }
+            })
+            if(restored.count) {
+                updatePlayerRooms(io, playerId).catch(console.error)
+            }
+        } catch(e) {
+            console.error(e)
         }
     });
 
