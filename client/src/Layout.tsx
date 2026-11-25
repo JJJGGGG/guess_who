@@ -60,7 +60,7 @@ export default function Layout() {
                     <div className={`gw-field${error ? " gw-field--error" : ""}`}>
                         <label htmlFor="playerName">Your name</label>
                         <input className="gw-input" id="playerName" name="playerName" maxLength={MAX_NAME_LENGTH}
-                            placeholder="e.g. julian" autoComplete="nickname" required
+                            placeholder="Pick a name other players will see" autoComplete="nickname" required
                             aria-invalid={!!error} aria-describedby={error ? "playerName-error" : undefined} />
                         {error && <span className="gw-field__help" id="playerName-error">{error}</span>}
                     </div>
